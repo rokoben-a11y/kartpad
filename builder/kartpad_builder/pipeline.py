@@ -290,6 +290,59 @@ def extract(profile: Profile, image: Path, output: Path) -> None:
             shutil.rmtree(stage)
 
 
+def translation_profile_report(
+    output: Path,
+    expected_generated: int,
+    expected_base: int,
+    expected_retro: int,
+) -> str:
+    """Compare a translation graph with the profile. Counts only; no generated source."""
+    functions = output / "functions"
+    count = len(list(functions.glob("func_*.cpp"))) if functions.is_dir() else 0
+    graph = ""
+    shards = output / "build_shards/shards.cmake"
+    if shards.is_file():
+        graph = shards.read_text()
+
+    def setting(name: str) -> str:
+        match = re.search(rf"^set\({name} (\d+)\)", graph, re.M)
+        return match.group(1) if match else "missing"
+
+    if "set(MKW_HAVE_RETRO_REWIND_SHARDS ON)" in graph:
+        have = "ON"
+    elif "set(MKW_HAVE_RETRO_REWIND_SHARDS OFF)" in graph:
+        have = "OFF"
+    else:
+        have = "missing"
+    rows = (
+        ("generated func_*.cpp", str(count), str(expected_generated)),
+        ("MKW_BASE_FUNCTION_COUNT", setting("MKW_BASE_FUNCTION_COUNT"), str(expected_base)),
+        ("MKW_RETRO_REWIND_FUNCTION_COUNT", setting("MKW_RETRO_REWIND_FUNCTION_COUNT"), str(expected_retro)),
+        ("MKW_HAVE_RETRO_REWIND_SHARDS", have, "ON"),
+    )
+    mismatches = [
+        f"{name}: actual {actual}, expected {expected}"
+        for name, actual, expected in rows
+        if actual != expected
+    ]
+    text = "profile validation failed\n" + "\n".join(mismatches) + "\n" if mismatches else "profile validation passed\n"
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "kartpad-profile-validation.txt").write_text(text)
+    return text
+
+
+def _require_translation_profile(
+    output: Path,
+    expected_generated: int,
+    expected_base: int,
+    expected_retro: int,
+    kind: str,
+) -> None:
+    text = translation_profile_report(output, expected_generated, expected_base, expected_retro)
+    if text.startswith("profile validation failed"):
+        raise BuildError(f"{kind} translation failed profile validation\n{text}")
+
+
 def translate(
     profile: Profile,
     repo: Path,
@@ -308,15 +361,8 @@ def translate(
     expected_base = profile.data["translation"]["expectedBaseFunctions"]
     expected_retro = profile.data["translation"]["expectedRetroFunctions"]
     if shards.is_file():
-        count = len(list((output / "functions").glob("func_*.cpp")))
-        graph = shards.read_text()
-        if (
-            count != expected_generated
-            or f"set(MKW_BASE_FUNCTION_COUNT {expected_base})" not in graph
-            or f"set(MKW_RETRO_REWIND_FUNCTION_COUNT {expected_retro})" not in graph
-            or "set(MKW_HAVE_RETRO_REWIND_SHARDS ON)" not in graph
-        ):
-            raise BuildError("cached translation failed profile validation")
+        _require_translation_profile(
+            output, expected_generated, expected_base, expected_retro, "cached")
         for script, function in guards:
             guard = _script(repo / script)
             run(guard + ["--verify", str(output / "functions" / function)])
@@ -351,15 +397,8 @@ def translate(
         run(guard + ["--inject-shards", str(output / "build_shards")])
         run(guard + ["--verify", str(output / "functions" / function)])
         run(guard + ["--verify-shards", str(output / "build_shards")])
-    count = len(list((output / "functions").glob("func_*.cpp")))
-    graph = shards.read_text()
-    if (
-        count != expected_generated
-        or f"set(MKW_BASE_FUNCTION_COUNT {expected_base})" not in graph
-        or f"set(MKW_RETRO_REWIND_FUNCTION_COUNT {expected_retro})" not in graph
-        or "set(MKW_HAVE_RETRO_REWIND_SHARDS ON)" not in graph
-    ):
-        raise BuildError("new translation failed profile validation")
+    _require_translation_profile(
+        output, expected_generated, expected_base, expected_retro, "new")
 
 
 @dataclass

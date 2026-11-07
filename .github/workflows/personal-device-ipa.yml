@@ -51,4 +51,7 @@ jobs:
       - name: Public prebuild
         run: scripts/prebuild-personal-device-ipa.sh
       - name: Device app and packed unsigned IPA
+        env:
+          # Private runner temp only. Do not upload this directory from a public fork.
+          KARTPAD_PRIVATE_DIAGNOSTICS_DIR: ${{ runner.temp }}/kartpad-private-diagnostics
         run: scripts/build-personal-device-ipa.sh "${{ inputs.output_ipa }}"

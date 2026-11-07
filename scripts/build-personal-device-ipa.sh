@@ -10,10 +10,19 @@
 #   KARTPAD_DISC_IMAGE          default /workspace/kp/MarioKart.iso
 #   KARTPAD_PACKED_SOURCE_IPA   default the 0.8.1 full-offline unsigned IPA
 #   KARTPAD_OUTPUT_IPA          or pass the IPA path as $1
-#   KARTPAD_RESIGN              must be off
+#   KARTPAD_RESIGN              must be off for this step
+#   KARTPAD_PRIVATE_DIAGNOSTICS_DIR
+#       absolute directory outside the checkout; on failure and success the
+#       count report and resolved_dispatch_profile.json are copied there.
+# This step stays unsigned. A successful exit leaves the IPA for the private
+# workflow's existing signing and publish steps.
 set -euo pipefail
 
 repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+preserve_diagnostics() {
+  "${repo_root}/scripts/preserve-personal-translation-diagnostics.sh" || true
+}
+trap preserve_diagnostics EXIT
 case "${KARTPAD_RESIGN:-off}" in
   off|OFF|0|"") ;;
   *) echo "ERROR: resign must be off" >&2; exit 2 ;;

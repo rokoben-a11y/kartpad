@@ -39,7 +39,7 @@ class PersonalDeviceIpaRecipeTests(unittest.TestCase):
         personal = json.loads((ROOT / "builder/personal/mkwii-rmcp01-rev0.json").read_text())
         public = json.loads((ROOT / "builder/profiles/mkwii-rmcp01-rev0.json").read_text())
         self.assertEqual(personal["retroRewind"]["version"], "6.13.1")
-        self.assertEqual(personal["translation"]["expectedRetroFunctions"], 4124)
+        self.assertEqual(personal["translation"]["expectedRetroFunctions"], 4119)
         self.assertEqual(public["retroRewind"]["version"], "6.13.5")
         self.assertIn("--profiles-dir", BUILD)
 

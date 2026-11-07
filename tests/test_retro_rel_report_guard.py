@@ -192,7 +192,7 @@ class RelReportGuardTests(unittest.TestCase):
         write_graph(shards, [compiled])
         graph = shards / 'shards.cmake'
         template = graph.read_text()
-        for count in (4188, 4095, 4124, 4101, 4153, 4103, 4160, 4139, 3979):
+        for count in (4188, 4095, 4124, 4119, 4101, 4153, 4103, 4160, 4139, 3979):
             with self.subTest(mod_functions=count):
                 graph.write_text(template.replace('MKW_RETRO_REWIND_FUNCTION_COUNT 1)',
                                                   f'MKW_RETRO_REWIND_FUNCTION_COUNT {count})'))

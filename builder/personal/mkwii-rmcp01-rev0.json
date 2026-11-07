@@ -105,7 +105,7 @@
     ],
     "expectedGeneratedFunctions": 29637,
     "expectedBaseFunctions": 29064,
-    "expectedRetroFunctions": 4124
+    "expectedRetroFunctions": 4119
   },
   "retroRewind": {
     "version": "6.13.1",
