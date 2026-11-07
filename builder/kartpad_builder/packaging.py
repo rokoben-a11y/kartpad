@@ -42,6 +42,33 @@ def _stamped_plist(path: Path, version: dict[str, Any]) -> bytes:
     return plistlib.dumps(plist, fmt=plistlib.FMT_BINARY if binary else plistlib.FMT_XML)
 
 
+def embedded_user_paths(data: bytes) -> list[str]:
+    """C-string paths beginning with /Users/. No surrounding file bytes are returned."""
+    found: set[str] = set()
+    start = 0
+    while True:
+        index = data.find(b"/Users/", start)
+        if index < 0:
+            break
+        end = index
+        while end < len(data) and 32 <= data[end] < 127 and end - index < 200:
+            end += 1
+        found.add(data[index:end].decode("ascii"))
+        start = end + 1
+    return sorted(found)
+
+
+def record_embedded_user_paths(paths: list[str]) -> None:
+    directory = os.environ.get("KARTPAD_PRIVATE_DIAGNOSTICS_DIR", "")
+    if not directory or not paths:
+        return
+    target = Path(directory)
+    if not target.is_absolute():
+        return
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "embedded-user-paths.txt").write_text("".join(f"{path}\n" for path in paths))
+
+
 def audit_app(app: Path, private_prefixes: tuple[str, ...] = ()) -> dict[str, Any]:
     if not app.is_dir() or app.suffix != ".app":
         raise PackageError(f"not an app bundle: {app}")
@@ -59,8 +86,10 @@ def audit_app(app: Path, private_prefixes: tuple[str, ...] = ()) -> dict[str, An
             raise PackageError(f"app contains forbidden private/signing data: {path.relative_to(app)}")
     executable = app / executable_name
     data = executable.read_bytes()
+    user_paths = embedded_user_paths(data)
+    record_embedded_user_paths(user_paths)
     for prefix in private_prefixes:
-        if prefix and prefix.encode() in data:
+        if prefix and any(path.startswith(prefix) for path in user_paths):
             raise PackageError(f"app executable exposes private build path: {prefix}")
     return {
         "bundleIdentifier": plist.get("CFBundleIdentifier"),

@@ -26,8 +26,16 @@ case "${pack_app}" in
   0|1) ;;
   *) echo "ERROR: KARTPAD_IOS_GAME_PACK_APP must be 0 or 1" >&2; exit 64 ;;
 esac
-dawn_archive="${repo_root}/build/dependency-cache/dawn-ios-arm64-v20260603.191052.tar.gz"
-dawn_sha256="a361fcca75929fa5c766cfcde979c010a6da7d805e5db8e15c75e73fd8260e78"
+official_dawn_archive="${repo_root}/build/dependency-cache/dawn-ios-arm64-v20260603.191052.tar.gz"
+official_dawn_sha256="a361fcca75929fa5c766cfcde979c010a6da7d805e5db8e15c75e73fd8260e78"
+built_dawn_archive="${repo_root}/build/dependency-cache/dawn-ios-device-arm64-kartpad.tar.gz"
+if [[ -n "${KARTPAD_DAWN_IOS_ARCHIVE:-}" ]]; then
+  dawn_archive="${KARTPAD_DAWN_IOS_ARCHIVE}"
+elif [[ -f "${built_dawn_archive}" ]]; then
+  dawn_archive="${built_dawn_archive}"
+else
+  dawn_archive="${official_dawn_archive}"
+fi
 discio_source="${KARTPAD_DISCIO_SOURCE_DIR:-${repo_root}/build/dolphin-ios-discio-iphoneos-source}"
 discio_build="${KARTPAD_DISCIO_BUILD_DIR:-${repo_root}/build/dolphin-ios-discio-iphoneos-build}"
 app="${xcode_build}/Release-iphoneos/KartPad.app"
@@ -75,11 +83,26 @@ else
     "-DMKW_TRANSLATED_SHARD_MANIFEST=${translation_root}/build_shards/shards.cmake")
   provenance_flags=(--translation "${translation_root}")
 fi
-if [[ ! -f "${dawn_archive}" ]] ||
-   [[ "$(shasum -a 256 "${dawn_archive}" | awk '{print $1}')" != "${dawn_sha256}" ]]; then
-  echo "ERROR: missing or mismatched pinned physical-iOS Dawn archive" >&2
+if [[ ! -f "${dawn_archive}" ]]; then
+  echo "ERROR: missing physical-iOS Dawn archive: ${dawn_archive}" >&2
   exit 66
 fi
+if [[ "${dawn_archive}" == "${official_dawn_archive}" ]] &&
+   [[ "$(shasum -a 256 "${dawn_archive}" | awk '{print $1}')" != "${official_dawn_sha256}" ]]; then
+  echo "ERROR: official physical-iOS Dawn archive hash mismatch" >&2
+  exit 66
+fi
+# The published v20260603 archive links Tint/Abseil __FILE__ strings from
+# /Users/runner/work/dawn-build. Reject that bytes-for-bytes; rebuild instead.
+if ! python3 "${repo_root}/scripts/check_private_build_paths.py" \
+    --tar-member libwebgpu_dawn.a "${dawn_archive}"; then
+  echo "ERROR: rebuild Dawn with scripts/build-dawn-ios-device.sh" >&2
+  exit 65
+fi
+dawn_sha256="$(shasum -a 256 "${dawn_archive}" | awk '{print $1}')"
+while IFS= read -r linked_archive; do
+  python3 "${repo_root}/scripts/check_private_build_paths.py" "${linked_archive}"
+done < <(find "${discio_build}" -name '*.a' -type f 2>/dev/null || true)
 if [[ ! -f "${discio_source}/Source/Core/DiscIO/DiscExtractor.h" ||
       ! -f "${discio_build}/Source/Core/DiscIO/libdiscio.a" ]]; then
   echo "ERROR: missing physical-iOS DiscIO dependency" >&2

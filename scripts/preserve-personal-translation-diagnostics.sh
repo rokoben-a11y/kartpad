@@ -25,7 +25,7 @@ copied=0
 while IFS= read -r path; do
   name="$(basename "${path}")"
   case "${name}" in
-    kartpad-profile-validation.txt|resolved_dispatch_profile.json) ;;
+    kartpad-profile-validation.txt|resolved_dispatch_profile.json|embedded-user-paths.txt) ;;
     *) continue ;;
   esac
   target="${dest}/${name}"

@@ -42,4 +42,5 @@ echo "Using ${version_line} at ${DEVELOPER_DIR}"
 export PYTHONPATH="${repo_root}/builder${PYTHONPATH:+:${PYTHONPATH}}"
 python3 -m kartpad_builder.cli --profiles-dir "${repo_root}/builder/personal" \
   bootstrap --target ios --profile mkwii-rmcp01-rev0
+"${repo_root}/scripts/build-dawn-ios-device.sh"
 echo "Public iOS device prebuild finished. Disc and packed IPA stay outside the repository."
