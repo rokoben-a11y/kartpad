@@ -135,9 +135,13 @@ if ! rg -a -F -q '[KartPad] exact SunPad runtime overlay installed' "${binary}";
   echo "game app does not contain the exact-overlay runtime host" >&2
   exit 69
 fi
-for importer_contract in \
-  'Game Data Required' \
-  "Import from Extracted Folder" \
+# Packed auto-load host. The binary must link the bundle provisioner and the
+# RMCP01 validator. It must not offer the unbundled "Game Data Required" import
+# step. Disc-extraction strings stay because that validator is still linked.
+for packed_contract in \
+  'Packed Game Data Missing' \
+  'does not download 6.13.5' \
+  '.kartpad-bundled-rr-source' \
   'Opening disc image' \
   'Game-file extraction was incomplete' \
   'RemoveGameDataOnNextLaunch' \
@@ -147,13 +151,25 @@ for importer_contract in \
   'GameData.import-' \
   'NSFileProtectionCompleteUntilFirstUserAuthentication'; do
   # NSString literals containing typographic punctuation are stored as UTF-16.
-  if ! python3 - "${binary}" "${importer_contract}" <<'PYTEXT'
+  if ! python3 - "${binary}" "${packed_contract}" <<'PYTEXT'
 import pathlib, sys
 blob = pathlib.Path(sys.argv[1]).read_bytes()
 raise SystemExit(0 if any(sys.argv[2].encode(encoding) in blob for encoding in ("utf-8", "utf-16-le", "utf-16-be")) else 1)
 PYTEXT
   then
-    echo "game app is missing the private game-data importer contract: ${importer_contract}" >&2
+    echo "game app is missing the packed offline contract: ${packed_contract}" >&2
+    exit 69
+  fi
+done
+for absent_import_gate in \
+  'Game Data Required'; do
+  if python3 - "${binary}" "${absent_import_gate}" <<'PYTEXT'
+import pathlib, sys
+blob = pathlib.Path(sys.argv[1]).read_bytes()
+raise SystemExit(0 if any(sys.argv[2].encode(encoding) in blob for encoding in ("utf-8", "utf-16-le", "utf-16-be")) else 1)
+PYTEXT
+  then
+    echo "packed game app still contains the post-install import gate: ${absent_import_gate}" >&2
     exit 69
   fi
 done

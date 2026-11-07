@@ -37,6 +37,10 @@ def require_host_pin(executable: Path) -> None:
             + ", ".join(missing)
             + "; KartPadRuntimeOverlayHost.mm was not linked"
         )
+    if b"Game Data Required" in data:
+        raise StageError(
+            "built KartPad executable still contains the post-install import gate"
+        )
 
 
 def _members(archive: zipfile.ZipFile, suffix: str) -> list[zipfile.ZipInfo]:
