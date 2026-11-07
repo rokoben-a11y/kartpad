@@ -1,0 +1,54 @@
+# Dispatch on a hosted macos-latest runner that is the verified
+# macos26-arm64 image with Xcode 26. Private game data is read from the
+# coordinator paths below and is not checked out from this repository.
+# resign stays off. The private rokoben-a11y/ios-signing build.yml can call
+# the same two scripts:
+#   repo_url: https://github.com/rokoben-a11y/kartpad
+#   ref: the personal-pin commit
+#   prebuild: scripts/prebuild-personal-device-ipa.sh
+#   build_script: scripts/build-personal-device-ipa.sh
+#   output_ipa: the absolute IPA path passed as $1
+#   xcode: "26"
+#   resign: off
+name: personal-device-ipa
+on:
+  workflow_dispatch:
+    inputs:
+      disc_image:
+        description: Private PAL RMCP01 ISO
+        default: /workspace/kp/MarioKart.iso
+        required: true
+        type: string
+      packed_source_ipa:
+        description: Private 0.8.1 full-offline unsigned IPA
+        default: /workspace/Devices/ios-signing/ipas/KartPad-0.8.1-full-offline-unsigned.ipa
+        required: true
+        type: string
+      output_ipa:
+        description: Absolute unsigned IPA output, outside the checkout
+        default: /tmp/KartPad-v0.8.8-personal-unsigned.ipa
+        required: true
+        type: string
+      resign:
+        description: Must stay off
+        default: "off"
+        required: true
+        type: string
+jobs:
+  ipa:
+    if: inputs.resign == 'off'
+    runs-on: macos-latest
+    timeout-minutes: 720
+    env:
+      KARTPAD_XCODE: "26"
+      KARTPAD_RESIGN: "off"
+      KARTPAD_DISC_IMAGE: ${{ inputs.disc_image }}
+      KARTPAD_PACKED_SOURCE_IPA: ${{ inputs.packed_source_ipa }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Public prebuild
+        run: scripts/prebuild-personal-device-ipa.sh
+      - name: Device app and packed unsigned IPA
+        run: scripts/build-personal-device-ipa.sh "${{ inputs.output_ipa }}"
