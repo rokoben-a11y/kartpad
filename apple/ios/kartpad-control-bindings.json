@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "game": "kartpad",
+  "layout_policy": "pad-control-layout",
+  "layout_version": 1,
+  "note": "Mario Kart Wii Classic touch targets. Geometry is pad-control-layout v1 and follows the live safe rectangle. These identifiers belong to KartPad. ExperimentalDPad is a group centered on the flash slot.",
+  "slots": [
+    {"id": "move", "kartpad": "move", "kind": "stick"},
+    {"id": "look", "kartpad": "c", "kind": "stick"},
+    {"id": "fire", "kartpad": "A"},
+    {"id": "action", "kartpad": "B"},
+    {"id": "switch", "kartpad": "X"},
+    {"id": "zoom", "kartpad": "Y"},
+    {"id": "grenade", "kartpad": "L"},
+    {"id": "melee", "kartpad": "R"},
+    {"id": "reload", "kartpad": "Z"},
+    {"id": "pause", "kartpad": "Start"},
+    {"id": "flash", "kartpad": "ExperimentalDPad", "kind": "group"}
+  ]
+}

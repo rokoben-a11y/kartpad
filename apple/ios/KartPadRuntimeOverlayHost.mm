@@ -37,6 +37,10 @@
 #include <chrono>
 
 #include "kartpad/input/auto_accelerate.h"
+#include "../shared/hp_control_layout.h"
+
+// Personal copy: packed Retro Rewind stays on this release. Do not fetch 6.13.5.
+static NSString *const kKartPadPinnedRetroRewindVersion = @"6.13.1";
 
 extern "C" int g_gxFrameCount;
 #include <atomic>
@@ -142,67 +146,19 @@ NSString *const kKartPadHiddenTouchControlsKey =
     @"KartPadHiddenTouchControls";
 
 void KartPadSeedTouchLayoutDefaults(BOOL force) {
-  BOOL tablet = UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad;
+  // Frames come from pad-control-layout v1 using the live safe rectangle.
+  // Do not seed a phone, tablet, or named-device point set.
   NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
   BOOL changed = NO;
-  if (force || [defaults dictionaryForKey:@"SunPadControlOrigins"] == nil) {
-    // iPad layout accepted by the maintainer on the physical iPad, 2026-09-07.
-    NSDictionary *origins = tablet ? @{
-      @"move": NSStringFromCGPoint(CGPointMake(0.14756954612005857, 0.91391391391391397)),
-      @"c": NSStringFromCGPoint(CGPointMake(0.90377745241581253, 0.87147147147147153)),
-      @"X": NSStringFromCGPoint(CGPointMake(0.1290190336749634, 0.66706706706706709)),
-      @"Y": NSStringFromCGPoint(CGPointMake(0.062562225475841865, 0.6820520520520521)),
-      @"A": NSStringFromCGPoint(CGPointMake(0.90181551976573948, 0.74799799799799804)),
-      @"B": NSStringFromCGPoint(CGPointMake(0.82915080527086371, 0.81399399399399397)),
-      @"R": NSStringFromCGPoint(CGPointMake(0.80767935578330885, 0.72758758758758757)),
-      @"L": NSStringFromCGPoint(CGPointMake(0.91096632503660335, 0.64904904904904903)),
-      @"Z": NSStringFromCGPoint(CGPointMake(0.83304538799414352, 0.65063063063063065)),
-      @"Start": NSStringFromCGPoint(CGPointMake(0.95537335285505121, 0.57607607607607603)),
-    } : @{
-      @"L" : NSStringFromCGPoint(CGPointMake(0.93580568318565682,
-                                               0.42246621616846858)),
-      @"R" : NSStringFromCGPoint(CGPointMake(0.8208055524263117,
-                                               0.5224662162495497)),
-      @"X" : NSStringFromCGPoint(CGPointMake(0.12563888892222205,
-                                               0.53485360360900902)),
-      @"Y" : NSStringFromCGPoint(CGPointMake(0.055472222222222207,
-                                               0.56739864864054057)),
-      @"Z" : NSStringFromCGPoint(CGPointMake(0.84591666666666665,
-                                               0.3783220720432432)),
-    };
-    [defaults setObject:origins forKey:@"SunPadControlOrigins"];
-    changed = YES;
-  }
   if (force || [defaults objectForKey:kKartPadHiddenTouchControlsKey] == nil) {
     [defaults setObject:@[@"ExperimentalDPad"] forKey:kKartPadHiddenTouchControlsKey];
     changed = YES;
   }
-  if (force || [defaults dictionaryForKey:@"SunPadControlSizeScales"] == nil) {
-    NSDictionary<NSString *, NSNumber *> *scales = tablet ? @{
-      @"A": @1.2150695323944092,
-      @"B": @1.2253857851028442,
-      @"L": @0.9791940450668335,
-      @"R": @0.6000000238418579,
-      @"X": @1.257727861404419,
-      @"Y": @1.3797838687896729,
-      @"Z": @1.2058641910552979,
-    } : @{@"L": @0.9791940450668335, @"R": @0.6000000238418579};
-    [defaults setObject:scales forKey:@"SunPadControlSizeScales"];
-    SunPadSettings *settings = SunPadSettings.sharedSettings;
-    for (NSString *identifier in scales) {
-      [settings setSizeScale:scales[identifier].doubleValue forControl:identifier];
-    }
-    changed = YES;
-  }
-  if (force || [defaults objectForKey:@"SunPadExperimentalDPadOrigin"] == nil) {
-    [defaults setObject:NSStringFromCGPoint(
-        CGPointMake(0.084500001609325415, 0.34521396397747761))
-                 forKey:@"SunPadExperimentalDPadOrigin"];
-    changed = YES;
-  }
-  if (force || [defaults objectForKey:@"SunPadExperimentalDPadScale"] == nil) {
-    [defaults setDouble:0.7827200293540955
-                 forKey:@"SunPadExperimentalDPadScale"];
+  if (force) {
+    [defaults removeObjectForKey:@"SunPadControlOrigins"];
+    [defaults removeObjectForKey:@"SunPadControlSizeScales"];
+    [defaults removeObjectForKey:@"SunPadExperimentalDPadOrigin"];
+    [defaults removeObjectForKey:@"SunPadExperimentalDPadScale"];
     changed = YES;
   }
   if (changed) [defaults synchronize];
@@ -581,10 +537,19 @@ BOOL KartPadEnsureRelativeRetroRewindRoot(NSError **error) {
       @"retro_rewind_root", @"RetroRewind/RetroRewind6", error);
 }
 
+void KartPadProvisionBundledContent();
+
 BOOL KartPadInstalledRetroRewindIsValid() {
-  if (![KartPadRetroRewindInstaller isInstalled]) return NO;
-  NSError *error = nil;
-  return KartPadEnsureRelativeRetroRewindRoot(&error) && error == nil;
+  KartPadProvisionBundledContent();
+  // 6.13.1 is the packed pin. Do not require the 6.13.5 Code.pul hash, and do
+  // not treat a newer feed version as something this copy should download.
+  NSString *version = KartPadRetroRewindInstaller.installedVersion;
+  if ([version isEqualToString:kKartPadPinnedRetroRewindVersion] ||
+      [KartPadRetroRewindInstaller isInstalled]) {
+    NSError *error = nil;
+    return KartPadEnsureRelativeRetroRewindRoot(&error) && error == nil;
+  }
+  return NO;
 }
 
 void KartPadRemoveStaleImportDirectories(NSString *supportRoot) {
@@ -669,7 +634,151 @@ void KartPadRemoveRollbackDirectories(NSString *supportRoot) {
   }
 }
 
+// Packed offline copy. Mario Kart Wii DATA and Retro Rewind 6.13.1 ship inside
+// the app (KartPad.app/GameData and KartPad.app/RetroRewind/RetroRewind6).
+// Launch links them into Application Support instead of asking for an import.
+// GameData is a symlink to the read-only packed tree. RetroRewind6 is a real
+// directory of links, with Code.pul, the XML and version.txt copied so later
+// size checks can read them. The parent RetroRewind directory stays writable,
+// so Riivolution saves still land in RetroRewind/riivolution/save.
+// A packed GameData tree replaces whatever is at Application Support/GameData.
+// An older copy is moved aside, not imported. A packed 6.13.1 tree replaces
+// RetroRewind6, including a previously downloaded newer pack. Saves outside
+// those folders stay in Application Support.
+NSString *const kKartPadBundledRRMarker = @".kartpad-bundled-rr-source";
+
+void KartPadProvisionBundledGameData(NSString *supportRoot) {
+  NSFileManager *files = NSFileManager.defaultManager;
+  NSString *bundled = [NSBundle.mainBundle.bundlePath
+      stringByAppendingPathComponent:@"GameData"];
+  if (![files fileExistsAtPath:[bundled stringByAppendingPathComponent:@"sys/fst.bin"]]) {
+    return;
+  }
+  NSString *dataDirectory = [supportRoot stringByAppendingPathComponent:@"GameData"];
+  NSDictionary *attributes = [files attributesOfItemAtPath:dataDirectory error:nil];
+  if (attributes != nil) {
+    if ([attributes[NSFileType] isEqualToString:NSFileTypeSymbolicLink]) {
+      NSString *target = [files destinationOfSymbolicLinkAtPath:dataDirectory error:nil];
+      if ([target isEqualToString:bundled]) return;
+    }
+    NSString *aside = [supportRoot stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"GameData.previous-%@", NSUUID.UUID.UUIDString]];
+    if (![files moveItemAtPath:dataDirectory toPath:aside error:nil]) {
+      NSLog(@"[KartPad] could not move the previous game data aside");
+      return;
+    }
+  }
+  NSError *linkError = nil;
+  if (![files createSymbolicLinkAtPath:dataDirectory withDestinationPath:bundled
+                                 error:&linkError]) {
+    NSLog(@"[KartPad] could not link packed game data: %@",
+          linkError.localizedDescription);
+    return;
+  }
+  NSError *configError = nil;
+  KartPadEnsureRelativeDvdRoot(&configError);
+  SunPadSettings *settings = SunPadSettings.sharedSettings;
+  settings.retainedGameDataPath = nil;
+  settings.extractedGameRoot = dataDirectory;
+  [settings synchronize];
+}
+
+BOOL KartPadMirrorBundledTree(NSString *source, NSString *destination,
+                              NSSet<NSString *> *copiedPaths, NSError **error) {
+  NSFileManager *files = NSFileManager.defaultManager;
+  if (![files createDirectoryAtPath:destination withIntermediateDirectories:YES
+                         attributes:nil error:error]) {
+    return NO;
+  }
+  NSDirectoryEnumerator<NSString *> *walker = [files enumeratorAtPath:source];
+  for (NSString *relative in walker) {
+    NSString *from = [source stringByAppendingPathComponent:relative];
+    NSString *to = [destination stringByAppendingPathComponent:relative];
+    NSString *type = walker.fileAttributes[NSFileType];
+    if ([type isEqualToString:NSFileTypeDirectory]) {
+      if (![files createDirectoryAtPath:to withIntermediateDirectories:YES
+                             attributes:nil error:error]) {
+        return NO;
+      }
+    } else if ([copiedPaths containsObject:relative]) {
+      if (![files copyItemAtPath:from toPath:to error:error]) return NO;
+    } else {
+      if (![files createSymbolicLinkAtPath:to withDestinationPath:from error:error] &&
+          ![files copyItemAtPath:from toPath:to error:error]) {
+        return NO;
+      }
+    }
+  }
+  return YES;
+}
+
+void KartPadProvisionBundledRetroRewind(NSString *supportRoot) {
+  NSFileManager *files = NSFileManager.defaultManager;
+  NSString *rrRootName = KartPadRetroRewindInstaller.installedRootPath.lastPathComponent;
+  NSString *bundled = [[NSBundle.mainBundle.bundlePath
+      stringByAppendingPathComponent:@"RetroRewind"]
+      stringByAppendingPathComponent:rrRootName];
+  NSString *bundledVersion = [NSString stringWithContentsOfFile:
+      [bundled stringByAppendingPathComponent:@"version.txt"]
+                                            encoding:NSUTF8StringEncoding
+                                               error:nil];
+  bundledVersion = [bundledVersion stringByTrimmingCharactersInSet:
+      NSCharacterSet.whitespaceAndNewlineCharacterSet];
+  if (![bundledVersion isEqualToString:kKartPadPinnedRetroRewindVersion]) {
+    return;
+  }
+  NSString *installedParent = [supportRoot stringByAppendingPathComponent:@"RetroRewind"];
+  NSString *installedRoot = [installedParent stringByAppendingPathComponent:rrRootName];
+  NSString *markerPath = [installedParent stringByAppendingPathComponent:kKartPadBundledRRMarker];
+  NSString *marker = [NSString stringWithContentsOfFile:markerPath
+                                               encoding:NSUTF8StringEncoding error:nil];
+  if ([marker isEqualToString:bundled] &&
+      [files fileExistsAtPath:[installedRoot stringByAppendingPathComponent:@"version.txt"]]) {
+    return;
+  }
+  NSError *error = nil;
+  [files createDirectoryAtPath:installedParent withIntermediateDirectories:YES
+                    attributes:nil error:&error];
+  NSString *staging = [installedParent stringByAppendingPathComponent:
+      [NSString stringWithFormat:@".bundled-%@", NSUUID.UUID.UUIDString]];
+  NSSet<NSString *> *copied = [NSSet setWithObjects:
+      @"Binaries/Code.pul",
+      @"xml/RetroRewind6.xml", @"version.txt", nil];
+  if (error == nil && !KartPadMirrorBundledTree(bundled, staging, copied, &error)) {
+    if (error == nil) error = KartPadGameDataError(6, @"Could not link packed Retro Rewind.");
+  }
+  if (error == nil && [files fileExistsAtPath:installedRoot]) {
+    [files removeItemAtPath:installedRoot error:&error];
+  }
+  if (error == nil) [files moveItemAtPath:staging toPath:installedRoot error:&error];
+  if (error != nil) {
+    NSLog(@"[KartPad] could not provision packed Retro Rewind: %@",
+          error.localizedDescription);
+    [files removeItemAtPath:staging error:nil];
+    return;
+  }
+  [bundled writeToFile:markerPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  NSURL *parentURL = [NSURL fileURLWithPath:installedParent isDirectory:YES];
+  [parentURL setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:nil];
+  KartPadEnsureRelativeRetroRewindRoot(nil);
+}
+
+void KartPadProvisionBundledContent() {
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    NSString *supportRoot = KartPadSupportRoot();
+    [NSFileManager.defaultManager createDirectoryAtPath:supportRoot
+                            withIntermediateDirectories:YES
+                                             attributes:@{NSFileProtectionKey:
+                                                 NSFileProtectionCompleteUntilFirstUserAuthentication}
+                                                  error:nil];
+    KartPadProvisionBundledGameData(supportRoot);
+    KartPadProvisionBundledRetroRewind(supportRoot);
+  });
+}
+
 BOOL KartPadInstalledGameDataIsValid() {
+  KartPadProvisionBundledContent();
   NSString *supportRoot = KartPadSupportRoot();
   KartPadRecoverInterruptedImport(supportRoot);
   NSString *dataDirectory = [supportRoot stringByAppendingPathComponent:@"GameData"];
@@ -859,7 +968,7 @@ static NSString *const kKartPadPreferredGameKey = @"KartPadPreferredGame";
 }
 
 - (void)showUpdate {
-  NSDictionary<NSString *, NSString *> *update = KartPadKnownUpdate();
+  NSDictionary<NSString *, NSString *> *update = nil;
   if (update == nil) {
     self.updateButton.hidden = YES;
     return;
@@ -888,16 +997,16 @@ static NSString *const kKartPadPreferredGameKey = @"KartPadPreferredGame";
   UILabel *buildBody = [self label:
       @"This download has no game code, so it can't play yet. PadMint builds your own KartPad from your Mario Kart Wii disc on a Mac, Windows or Linux computer. Install that copy over this one with the same sideloading tool and Apple ID. Your saves and any game data you imported stay."
       style:UIFontTextStyleBody secondary:YES];
-  UILabel *importTitle = [self label:needsBuild ? @"2. Import Mario Kart Wii" : @"1. Import Mario Kart Wii"
+  UILabel *importTitle = [self label:needsBuild ? @"2. Packed game data" : @"1. Packed game data"
                                style:UIFontTextStyleTitle2 secondary:NO];
   UILabel *importBody = [self label:
-      @"Easiest: the KartPad game data folder PadMint makes, or the folder Dolphin's Extract Entire Disc makes. Copy it to this device and choose Import from Extracted Folder. The game must be PAL (Europe) RMCP01, revision 0. An ISO or WBFS also works with your own Wii's common key."
+      @"This copy uses the PAL RMCP01 revision 0 DATA folder packed inside the app. It does not import a disc or a folder. Saves stay in KartPad's Application Support folder."
       style:UIFontTextStyleBody secondary:YES];
-  UILabel *retroTitle = [self label:needsBuild ? @"3. Add Retro Rewind, if you want it" : @"2. Add Retro Rewind, if you want it"
+  UILabel *retroTitle = [self label:needsBuild ? @"3. Packed Retro Rewind" : @"2. Packed Retro Rewind"
                               style:UIFontTextStyleTitle2 secondary:NO];
   UILabel *retroBody = [self label:[NSString stringWithFormat:
-      @"Import Mario Kart Wii first, then choose Retro Rewind. KartPad can download and install the official %@ pack. You do not need to import a second disc.",
-      KartPadRetroRewindInstaller.requiredVersion] style:UIFontTextStyleBody secondary:YES];
+      @"Retro Rewind stays on %@. This copy does not check for a newer pack and does not download 6.13.5. Online play may be unavailable.",
+      kKartPadPinnedRetroRewindVersion] style:UIFontTextStyleBody secondary:YES];
   UILabel *supportTitle = [self label:@"Stuck on a step?" style:UIFontTextStyleTitle2 secondary:NO];
   UILabel *supportBody = [self label:
       @"The GitHub guides cover supported files, free space, installation and common problems. If you report an issue, include your KartPad version, device, and the exact message you see."
@@ -1031,14 +1140,13 @@ static NSString *const kKartPadPreferredGameKey = @"KartPadPreferredGame";
 - (UIView *)gameCard:(BOOL)retro installedVersion:(NSString *)installedVersion {
   BOOL current = self.resumingGame && self.currentRetroRewind == retro;
   // An installed pack from another Retro Rewind release needs the in-app update.
-  BOOL outdated = retro && installedVersion.length > 0 &&
-      ![installedVersion isEqualToString:KartPadRetroRewindInstaller.requiredVersion];
   BOOL ready = !self.needsGamePack && self.gameDataReady &&
-      (!retro || (installedVersion.length > 0 && !outdated));
+      (!retro || [installedVersion isEqualToString:kKartPadPinnedRetroRewindVersion] ||
+       [installedVersion isEqualToString:KartPadRetroRewindInstaller.requiredVersion]);
   NSString *status = current ? @"Paused" : (self.resumingGame ? @"Next launch"
       : (self.needsGamePack ? @"Needs your PadMint build"
-      : (ready ? @"Ready to play" : (retro && !self.gameDataReady ? @"Import Mario Kart Wii first"
-          : (outdated ? @"Update needed" : @"Setup needed")))));
+      : (ready ? @"Ready to play"
+         : (!self.gameDataReady ? @"Packed game data missing" : @"Setup needed"))));
   UILabel *title = [self label:retro ? @"Retro Rewind" : @"Mario Kart Wii" style:UIFontTextStyleTitle2 secondary:NO];
   title.accessibilityTraits |= UIAccessibilityTraitHeader;
   [self.cardTitles addObject:title];
@@ -1080,8 +1188,8 @@ static NSString *const kKartPadPreferredGameKey = @"KartPadPreferredGame";
   action.accessibilityIdentifier = retro ? @"kartpad.mode.retro-rewind" : @"kartpad.mode.original";
   action.accessibilityLabel = [NSString stringWithFormat:@"%@, %@", actionTitle, title.text];
   action.accessibilityHint = [NSString stringWithFormat:@"%@. %@", status, retro
-      ? (installedVersion.length ? [NSString stringWithFormat:@"Installed pack %@", installedVersion] : @"Optional official pack, downloaded in the app")
-      : (self.gameDataReady ? @"Game data imported" : @"PAL Europe ISO or WBFS, RMCP01 revision zero")];
+      ? [NSString stringWithFormat:@"Packed Retro Rewind %@", installedVersion.length ? installedVersion : kKartPadPinnedRetroRewindVersion]
+      : (self.gameDataReady ? @"Packed game data" : @"Packed PAL RMCP01 game data")];
   [action.heightAnchor constraintGreaterThanOrEqualToConstant:48].active = YES;
   [action.widthAnchor constraintGreaterThanOrEqualToConstant:190].active = YES;
   [action setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
@@ -1153,12 +1261,9 @@ static NSString *const kKartPadPreferredGameKey = @"KartPadPreferredGame";
   [help setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
   self.updateButton = [self link:@"Update available" symbol:@"arrow.down.circle" action:^{ [weakSelf showUpdate]; }];
   self.updateButton.accessibilityIdentifier = @"kartpad.setup.update";
-  self.updateButton.hidden = KartPadKnownUpdate() == nil;
+  // Personal build: no KartPad release check and no "Update available" notice.
+  self.updateButton.hidden = YES;
   [self.updateButton setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-  KartPadRefreshUpdate(NO, ^(NSDictionary<NSString *, NSString *> *update, BOOL checked) {
-    (void)checked;
-    weakSelf.updateButton.hidden = update == nil;
-  });
   [identity setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
   self.header = [[UIStackView alloc] initWithArrangedSubviews:@[identity, [UIView new], self.updateButton, self.themeButton, help]];
   self.header.axis = UILayoutConstraintAxisHorizontal;
@@ -1431,9 +1536,11 @@ static NSString *const kKartPadPreferredGameKey = @"KartPadPreferredGame";
     [self showOptions];
     return;
   }
+  // Personal build: launch the packed Retro Rewind 6.13.1 tree without fetching
+  // the official version feed, so a newer release never blocks play. Online
+  // matchmaking may fail; that loss is accepted.
   if (self.selectedRetroRewind && !self.retroVersionChecked) {
-    [self checkRetroRewindVersionAndContinue];
-    return;
+    self.retroVersionChecked = YES;
   }
   if (self.selectedRetroRewind && !KartPadInstalledRetroRewindIsValid()) {
     [self showRetroRewindOptions];
@@ -1492,85 +1599,21 @@ static NSString *const kKartPadPreferredGameKey = @"KartPadPreferredGame";
 }
 
 - (void)chooseRetroRewindArchive {
-  self.choosingRetroArchive = YES;
-  self.choosingGameDataCopy = NO;
-  UTType *zip = [UTType typeWithFilenameExtension:@"zip"];
-  UIDocumentPickerViewController *picker =
-      [[UIDocumentPickerViewController alloc]
-          initForOpeningContentTypes:zip == nil ? @[UTTypeArchive] : @[zip]
-                            asCopy:NO];
-  picker.delegate = self;
-  picker.allowsMultipleSelection = NO;
-  [self.root presentViewController:picker animated:YES completion:nil];
+  // Packed pin: do not open a ZIP that would then download the 6.13.5 update.
+  [self showRetroRewindOptions];
 }
 
 - (void)startOfficialRetroRewindDownload {
-  self.receivedRetroDownload = NO;
-  self.lastRetroDownloadPercent = -1;
-  UIAlertController *progress = [UIAlertController
-      alertControllerWithTitle:[NSString stringWithFormat:
-          @"Downloading Retro Rewind %@",
-          KartPadRetroRewindInstaller.requiredVersion]
-                       message:@"Starting the official full download…"
-                preferredStyle:UIAlertControllerStyleAlert];
-  self.retroProgressAlert = progress;
-  __weak KartPadFirstLaunchHost *weakSelf = self;
-  [progress addAction:[UIAlertAction actionWithTitle:@"Cancel"
-                                               style:UIAlertActionStyleCancel
-                                             handler:^(UIAlertAction *action) {
-    (void)action;
-    KartPadFirstLaunchHost *strongSelf = weakSelf;
-    [strongSelf.retroDownloadTask cancel];
-    strongSelf.retroProgressAlert = nil;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
-                                 (int64_t)(0.35 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-      [strongSelf showRetroRewindOptions];
-    });
-  }]];
-  [self.root presentViewController:progress animated:YES completion:nil];
-  NSURLSessionConfiguration *configuration =
-      NSURLSessionConfiguration.defaultSessionConfiguration;
-  configuration.allowsCellularAccess = YES;
-  self.retroDownloadSession =
-      [NSURLSession sessionWithConfiguration:configuration delegate:self
-                               delegateQueue:NSOperationQueue.mainQueue];
-  self.retroDownloadTask = [self.retroDownloadSession
-      downloadTaskWithURL:KartPadRetroRewindInstaller.officialArchiveURL];
-  [self.retroDownloadTask resume];
+  // Packed pin: never fetch the official archive, which is 6.13.5 on this tree.
+  [self showRetroRewindOptions];
 }
 
 - (void)showRetroRewindOptions {
-  const double gib = (double)KartPadRetroRewindInstaller.officialArchiveBytes /
-                     (1024.0 * 1024.0 * 1024.0);
   UIAlertController *options = [UIAlertController
       alertControllerWithTitle:[NSString stringWithFormat:
-          @"Retro Rewind %@ Required",
-          KartPadRetroRewindInstaller.requiredVersion]
-                       message:[NSString stringWithFormat:
-          @"Retro Rewind is optional community content used for its extra tracks, characters, and Retro WFC online play. This KartPad build requires the matching official %.2f GiB base download plus a small update. The update downloads automatically, including when you choose a ZIP.",
-          gib]
+          @"Retro Rewind %@ Is Packed", kKartPadPinnedRetroRewindVersion]
+                       message:@"This copy plays the Retro Rewind 6.13.1 folder packed inside the app. It does not check the version feed and does not download 6.13.5. Online play may be unavailable."
                 preferredStyle:UIAlertControllerStyleAlert];
-  [options addAction:[UIAlertAction actionWithTitle:@"Download Official Pack"
-                                               style:UIAlertActionStyleDefault
-                                             handler:^(UIAlertAction *action) {
-    (void)action;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
-                                 (int64_t)(0.35 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-      [self startOfficialRetroRewindDownload];
-    });
-  }]];
-  [options addAction:[UIAlertAction actionWithTitle:@"Choose Full-Download ZIP…"
-                                               style:UIAlertActionStyleDefault
-                                             handler:^(UIAlertAction *action) {
-    (void)action;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
-                                 (int64_t)(0.35 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-      [self chooseRetroRewindArchive];
-    });
-  }]];
   [options addAction:[UIAlertAction actionWithTitle:@"Back"
                                                style:UIAlertActionStyleCancel
                                              handler:nil]];
@@ -1748,27 +1791,9 @@ static NSString *const kKartPadPreferredGameKey = @"KartPadPreferredGame";
   self.choosingRetroArchive = NO;
   self.choosingGameDataCopy = NO;
   UIAlertController *options =
-      [UIAlertController alertControllerWithTitle:@"Game Data Required"
-          message:@"Import your own Mario Kart Wii once: PAL (Europe), RMCP01.\n\nEasiest: the folder Dolphin's Extract Entire Disc makes. Copy it to this device (AirDrop, a zip you unzip in Files, or iCloud Drive once it has fully downloaded) and import it.\n\nA disc image (ISO or WBFS) needs your own Wii's common key. Retro Rewind is added after this step."
+      [UIAlertController alertControllerWithTitle:@"Packed Game Data Missing"
+          message:@"This copy plays the PAL RMCP01 revision 0 DATA folder packed inside the app. It does not import a disc or a folder. Add GameData to the app bundle and open KartPad again. Saves stay in Application Support."
           preferredStyle:UIAlertControllerStyleAlert];
-  [options addAction:[UIAlertAction actionWithTitle:@"Import from Extracted Folder…"
-                                               style:UIAlertActionStyleDefault
-                                             handler:^(UIAlertAction *action) {
-    (void)action;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
-                                 (int64_t)(0.35 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{ [self chooseDocumentsRoot]; });
-  }]];
-  [options addAction:[UIAlertAction actionWithTitle:@"Disc Image (Needs Wii Key) or Other Folder…"
-                                               style:UIAlertActionStyleDefault
-                                             handler:^(UIAlertAction *action) {
-    (void)action;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
-                                 (int64_t)(0.35 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-      [self presentGameDataPicker];
-    });
-  }]];
   [options addAction:[UIAlertAction actionWithTitle:@"Back"
                                                style:UIAlertActionStyleCancel
                                              handler:nil]];
@@ -2449,6 +2474,96 @@ static void KartPadApplySoundLevels(BOOL persist) {
   [self layoutIfNeeded];
 }
 
+- (UIView *)kartPadControlWithIdentifier:(NSString *)identifier {
+  if ([self.accessibilityIdentifier isEqualToString:identifier]) return self;
+  for (UIView *child in self.subviews) {
+    if ([child.accessibilityIdentifier isEqualToString:identifier]) return child;
+  }
+  return nil;
+}
+
+- (void)kartPadPlacePolicyBox:(UIView *)control box:(const hp_layout_box *)box {
+  control.bounds = CGRectMake(0, 0, box->w, box->h);
+  control.center = CGPointMake(box->x + box->w / 2.0, box->y + box->h / 2.0);
+  if ([control isKindOfClass:UIButton.class]) {
+    control.layer.cornerRadius = (CGFloat)(std::min(box->w, box->h) * 0.5);
+  }
+}
+
+// KartPad Classic bindings for pad-control-layout v1. Geometry uses the live
+// safe rectangle: compact below 700 by 500 points, large (roomier inset) at
+// or above that. No device model is consulted.
+- (void)kartPadApplyPolicyTouchLayout {
+  CGRect safe = self.bounds;
+  safe = UIEdgeInsetsInsetRect(safe, self.safeAreaInsets);
+  if (CGRectGetWidth(safe) < 1.0 || CGRectGetHeight(safe) < 1.0) return;
+  NSDictionary *saved = [NSUserDefaults.standardUserDefaults
+      dictionaryForKey:@"SunPadControlOrigins"];
+  const BOOL editing = SunPadSettings.sharedSettings.editingControlLayout;
+  NSString *selected = self.kartPadSelectedControlIdentifier;
+  const struct {
+    int slot;
+    __unsafe_unretained NSString *identifier;
+  } kKartPadControlLayoutBindings[] = {
+    {HP_LAYOUT_MOVE, @"move"},
+    {HP_LAYOUT_LOOK, @"c"},
+    {HP_LAYOUT_FIRE, @"A"},
+    {HP_LAYOUT_ACTION, @"B"},
+    {HP_LAYOUT_SWITCH, @"X"},
+    {HP_LAYOUT_ZOOM, @"Y"},
+    {HP_LAYOUT_GRENADE, @"L"},
+    {HP_LAYOUT_MELEE, @"R"},
+    {HP_LAYOUT_RELOAD, @"Z"},
+    {HP_LAYOUT_PAUSE, @"Start"},
+  };
+  hp_layout_request request = {};
+  request.safe_x = CGRectGetMinX(safe);
+  request.safe_y = CGRectGetMinY(safe);
+  request.safe_w = CGRectGetWidth(safe);
+  request.safe_h = CGRectGetHeight(safe);
+  request.control_size = SunPadSettings.sharedSettings.controlSizeScale;
+  request.ring_spacing = 1;
+  request.left_handed = 0;
+  hp_layout_box boxes[HP_LAYOUT_SLOT_COUNT];
+  hp_layout_frames(&request, boxes);
+  for (const auto &binding : kKartPadControlLayoutBindings) {
+    if (saved[binding.identifier] != nil) continue;
+    if (editing && [selected isEqualToString:binding.identifier]) continue;
+    UIView *control = [self kartPadControlWithIdentifier:binding.identifier];
+    if (control == nil) continue;
+    [self kartPadPlacePolicyBox:control box:&boxes[binding.slot]];
+  }
+  NSString *dpadOrigin = [NSUserDefaults.standardUserDefaults
+      stringForKey:@"SunPadExperimentalDPadOrigin"];
+  UIView *dpad = [self kartPadControlWithIdentifier:@"ExperimentalDPad"];
+  if (dpad != nil && dpadOrigin.length == 0 &&
+      !(editing && [selected isEqualToString:@"ExperimentalDPad"])) {
+    const hp_layout_box *anchor = &boxes[HP_LAYOUT_FLASH];
+    double side = anchor->w * 3.0;
+    if (side > request.safe_w) side = request.safe_w;
+    if (side > request.safe_h) side = request.safe_h;
+    if (side < HP_LAYOUT_MIN_TARGET) side = HP_LAYOUT_MIN_TARGET;
+    hp_layout_box group = {
+      anchor->x + anchor->w / 2.0 - side / 2.0,
+      anchor->y + anchor->h / 2.0 - side / 2.0,
+      side, side};
+    hp_layout_clamp(&request, &group);
+    [self kartPadPlacePolicyBox:dpad box:&group];
+    const double cell = side / 3.0;
+    const CGPoint center = dpad.center;
+    const struct { __unsafe_unretained NSString *identifier; double x, y; } pads[] = {
+      {@"D_U", 0, -1}, {@"D_D", 0, 1}, {@"D_L", -1, 0}, {@"D_R", 1, 0},
+    };
+    for (const auto &pad : pads) {
+      UIView *button = [self kartPadControlWithIdentifier:pad.identifier];
+      if (button == nil) continue;
+      button.bounds = CGRectMake(0, 0, cell, cell);
+      button.center = CGPointMake(center.x + pad.x * cell, center.y + pad.y * cell);
+      button.layer.cornerRadius = (CGFloat)(cell * 0.5);
+    }
+  }
+}
+
 - (void)layoutSubviews {
   [super layoutSubviews];
   self.kartPadMoveStick.floatingEnabled =
@@ -2483,6 +2598,8 @@ static void KartPadApplySoundLevels(BOOL persist) {
       if ([layer isKindOfClass:CAShapeLayer.class]) layer.hidden = YES;
     }
   }
+
+  [self kartPadApplyPolicyTouchLayout];
 
   // L shares the gas latch's timing and look, behind its own option.
   if (leftShoulder != nil && self.kartPadItemButton != leftShoulder) {
@@ -2765,28 +2882,16 @@ static void KartPadApplySoundLevels(BOOL persist) {
       NSMutableArray<UIMenuElement *> *dataItems = [NSMutableArray array];
       for (UIMenuElement *dataElement in dataMenu.children) {
         if ([dataElement isKindOfClass:UIAction.class] &&
-            [dataElement.title isEqualToString:@"Import from SunPad Folder"]) {
-          UIAction *sourceAction = (UIAction *)dataElement;
-          UIAction *replacement =
-              [UIAction actionWithTitle:@"Import from Extracted Folder…"
-                                  image:sourceAction.image
-                             identifier:sourceAction.identifier
-                                handler:^(__kindof UIAction *action) {
-            (void)action;
-            [weakSelf.delegate gameOverlayRequestsGameDataFolderImport:weakSelf];
-          }];
-          replacement.attributes = sourceAction.attributes;
-          replacement.state = sourceAction.state;
-          replacement.discoverabilityTitle = sourceAction.discoverabilityTitle;
-          [dataItems addObject:replacement];
-        } else {
-          if ([dataElement isKindOfClass:UIAction.class]) {
-            UIAction *renamed = (UIAction *)dataElement;
-            if ([renamed.title isEqualToString:@"Import or Reimport Game Data"]) renamed.title = @"Import or Reimport Wii Disc Image…";
-            if ([renamed.title isEqualToString:@"Remove Stored Game Data"]) renamed.title = @"Remove Stored Game Data…";
-          }
-          [dataItems addObject:dataElement];
+            ([dataElement.title isEqualToString:@"Import from SunPad Folder"] ||
+             [dataElement.title isEqualToString:@"Import or Reimport Game Data"])) {
+          // Packed copy: do not offer a disc or folder import.
+          continue;
         }
+        if ([dataElement isKindOfClass:UIAction.class]) {
+          UIAction *renamed = (UIAction *)dataElement;
+          if ([renamed.title isEqualToString:@"Remove Stored Game Data"]) renamed.title = @"Remove Stored Game Data…";
+        }
+        [dataItems addObject:dataElement];
       }
       // Offer the extracted folder (no key needed) before the disc image (needs a Wii key).
       NSUInteger discIndex = NSNotFound, folderIndex = NSNotFound;
@@ -4388,14 +4493,14 @@ static void KartPadApplySoundLevels(BOOL persist) {
 
 - (void)gameOverlayRequestsGameDataChange:(SunPadGameOverlay *)overlay {
   (void)overlay;
-  [self presentGameDataFolderPicker];
+  [self showIntegrationAlert:@"Game Data Is Packed"
+      message:@"This copy uses the game data packed inside the app. It does not import a folder or a disc. Saves stay in KartPad's Application Support folder."];
 }
 
 - (void)gameOverlayRequestsGameDataFolderImport:(SunPadGameOverlay *)overlay {
   (void)overlay;
-  UIViewController *presenter=KartPadVisibleViewController(_window);if(!presenter)return;
-  UIDocumentPickerViewController *picker=[[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeFolder] asCopy:NO];picker.delegate=self;picker.allowsMultipleSelection=NO;
-  [presenter presentViewController:picker animated:YES completion:nil];
+  [self showIntegrationAlert:@"Game Data Is Packed"
+      message:@"This copy uses the game data packed inside the app. It does not import a folder or a disc. Saves stay in KartPad's Application Support folder."];
 }
 
 - (void)gameOverlayRequestsGameDataRemoval:(SunPadGameOverlay *)overlay {
@@ -4484,7 +4589,7 @@ static void KartPadApplySoundLevels(BOOL persist) {
 
 - (void)showRetroManager {
   NSString *version=KartPadRetroRewindInstaller.installedVersion;
-  UIAlertController *sheet=[UIAlertController alertControllerWithTitle:@"Manage Retro Rewind" message:[NSString stringWithFormat:@"Installed version: %@\nRequired version: %@\n\nReturn to the KartPad menu and choose Retro Rewind to check its pack and install or update when required.",version?:@"Not installed",KartPadRetroRewindInstaller.requiredVersion] preferredStyle:UIAlertControllerStyleAlert];
+  UIAlertController *sheet=[UIAlertController alertControllerWithTitle:@"Manage Retro Rewind" message:[NSString stringWithFormat:@"Installed version: %@\nPinned version: %@\n\nThis copy does not download or update Retro Rewind, including to 6.13.5. Online play may be unavailable.",version?:@"Not installed",kKartPadPinnedRetroRewindVersion] preferredStyle:UIAlertControllerStyleAlert];
   [sheet addAction:[UIAlertAction actionWithTitle:@"Return to KartPad Menu" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action){gKartPadMainMenuRequested=YES;}]];
   [sheet addAction:[UIAlertAction actionWithTitle:@"Done" style:UIAlertActionStyleCancel handler:nil]];[self presentOverlayAlert:sheet];
 }
@@ -4720,6 +4825,7 @@ static void KartPadApplySoundLevels(BOOL persist) {
 
 extern "C" bool KartPadMobileEnsureGameDataAvailable() {
   KartPadSystemDiagnosticsStart();
+  KartPadProvisionBundledContent();
   KartPadApplyPrivateServerAtLaunch();
   KartPadApplyCountryAtLaunch();
   NSError *miiError = nil;

@@ -40,6 +40,19 @@ int main() {
 '''
 
 
+class AppleUpdateShellContract(unittest.TestCase):
+    def test_personal_ios_shell_does_not_prompt_and_mac_still_checks(self):
+        ios = (ROOT / "apple/ios/KartPadRuntimeOverlayHost.mm").read_text()
+        mac = (ROOT / "apple/macos/KartPadMacShell.mm").read_text()
+        for text in (ios, mac):
+            self.assertIn('#include "KartPadUpdateCheck.inc.mm"', text)
+        self.assertNotIn("KartPadRefreshUpdate(", ios)
+        self.assertIn("self.updateButton.hidden = YES;", ios)
+        self.assertIn("KartPadRefreshUpdate(NO,", mac)
+        self.assertIn('@"kartpad.setup.update"', ios)
+        self.assertIn("@selector(checkForUpdates:)", mac)
+
+
 @unittest.skipUnless(platform.system() == "Darwin", "needs Foundation")
 class AppleUpdateCheck(unittest.TestCase):
     def test_version_order_and_trusted_releases(self):
@@ -52,15 +65,6 @@ class AppleUpdateCheck(unittest.TestCase):
             self.assertEqual(build.returncode, 0, build.stderr)
             result = subprocess.run([str(exe)], capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_both_apple_shells_include_the_check(self):
-        ios = (ROOT / "apple/ios/KartPadRuntimeOverlayHost.mm").read_text()
-        mac = (ROOT / "apple/macos/KartPadMacShell.mm").read_text()
-        for text in (ios, mac):
-            self.assertIn('#include "KartPadUpdateCheck.inc.mm"', text)
-            self.assertIn("KartPadRefreshUpdate(NO,", text)
-        self.assertIn('@"kartpad.setup.update"', ios)
-        self.assertIn("@selector(checkForUpdates:)", mac)
 
 
 if __name__ == "__main__":

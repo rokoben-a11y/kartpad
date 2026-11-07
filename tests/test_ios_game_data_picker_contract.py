@@ -87,13 +87,12 @@ class IOSGameDataPickerContractTests(unittest.TestCase):
         self.assertIn("KartPadDocumentsFolderScanDetail", source)
         self.assertIn("NSBundle.mainBundle.bundleIdentifier", source)
         self.assertIn("If a signer changes the bundle identifier", source)
-        self.assertEqual(
-            source.count('actionWithTitle:@"Import from Extracted Folder…"'),
-            2,
-        )
-        self.assertIn("[self presentGameDataPicker];", source)
+        options = source.split("- (void)showOptions {", 1)[1].split(
+            "- (void)showGamePackRequired {", 1)[0]
+        self.assertIn("Packed Game Data Missing", options)
+        self.assertNotIn("presentGameDataPicker", options)
+        self.assertNotIn('actionWithTitle:@"Import from Extracted Folder…"', source)
         self.assertIn("[self presentGameDataFolderPicker];", source)
-        self.assertIn("gameOverlayRequestsGameDataFolderImport:weakSelf", source)
         self.assertEqual(
             source.count('NSLog(@"[KartPad] %@", KartPadDocumentsFolderScanDetail(error));'),
             1,
@@ -111,7 +110,7 @@ class IOSGameDataPickerContractTests(unittest.TestCase):
         self.assertIn("[self presentGameDataFolderPicker];", scan)
         self.assertNotIn("[self presentGameDataPicker];", scan)
         self.assertEqual(
-            source.count("initForOpeningContentTypes:@[UTTypeFolder] asCopy:NO"), 2)
+            source.count("initForOpeningContentTypes:@[UTTypeFolder] asCopy:NO"), 1)
         for start in ("- (void)startImport:(NSURL *)url deleteAfterwards:(BOOL)deleteAfterwards {",
                       "- (void)importExtractedGameDataFromURL:(NSURL *)url"):
             body = source.split(start, 1)[1].split("\n}\n", 1)[0]

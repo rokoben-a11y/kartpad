@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "id": "pad-control-layout",
+  "version": 1,
+  "geometry_only": true,
+  "consumers": ["HaloPad"],
+  "future_consumers": ["KartPad"],
+  "excluded_consumers": ["Playport"],
+  "selection": {
+    "uses_device_model": false,
+    "large_min_safe_width": 700,
+    "large_min_safe_height": 500,
+    "rule": "large when the live safe rectangle is at least large_min_safe_width by large_min_safe_height points; otherwise compact. Insets come from the window safe area. A named phone with an unknown outer screen and a larger inner screen changes class only when that rectangle changes."
+  },
+  "minimum_target_points": 44,
+  "slots": [
+    "move",
+    "look",
+    "fire",
+    "action",
+    "switch",
+    "zoom",
+    "grenade",
+    "melee",
+    "reload",
+    "crouch",
+    "jump",
+    "flash",
+    "nade",
+    "scores",
+    "pause"
+  ],
+  "size_classes": {
+    "compact": "Lower grip for a short or narrow safe rectangle, including an unknown outer screen.",
+    "large": "Raised side grip when the safe rectangle is tablet-like, including an unknown inner screen. Width of at least 1000 points also applies the existing wide scale."
+  },
+  "saved_layout_keys": {
+    "version": 4,
+    "compact": "HaloPad.compact.v4",
+    "large": "HaloPad.large.v4",
+    "legacy_read": "HaloPad.phone.v3 or HaloPad.tablet.v3 is read only when the size class still matches that idiom. Writes and resets use v4."
+  }
+}
