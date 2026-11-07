@@ -49,6 +49,10 @@ case "${product}" in
 esac
 
 python3 "${repo_root}/scripts/stage-maintained-runtime.py" --verify ios "${runtime_source}"
+# The staged runtime FORCE-pins the published Dawn digest after -D is read.
+# A path-clean rebuild must keep the digest of the file FetchContent verifies.
+python3 "${repo_root}/scripts/keep_caller_dawn_package_hash.py" \
+  "${runtime_source}/CMakeLists.txt"
 
 if [[ ! -f "${runtime_source}/CMakeLists.txt" ]] ||
    ! rg -q 'MKW_KARTPAD_REPO_ROOT' "${runtime_source}/cmake/PublicProducts.cmake"; then
@@ -100,6 +104,8 @@ if ! python3 "${repo_root}/scripts/check_private_build_paths.py" \
   exit 65
 fi
 dawn_sha256="$(shasum -a 256 "${dawn_archive}" | awk '{print $1}')"
+echo "Dawn package: ${dawn_archive}"
+echo "Dawn package sha256: ${dawn_sha256}"
 while IFS= read -r linked_archive; do
   python3 "${repo_root}/scripts/check_private_build_paths.py" "${linked_archive}"
 done < <(find "${discio_build}" -name '*.a' -type f 2>/dev/null || true)
