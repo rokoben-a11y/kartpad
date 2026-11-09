@@ -1,5 +1,7 @@
 #import "SunPadSettings.h"
 
+#import <TargetConditionals.h>
+
 @implementation SunPadSettings {
     NSMutableDictionary<NSString *, NSNumber *> *_controlSizeScales;
 }
@@ -46,8 +48,18 @@
 }
 
 - (SunPadAspectRatioMode)aspectRatioMode {
-    NSInteger mode = [[NSUserDefaults standardUserDefaults]
-        integerForKey:@"SunPadAspectRatioMode"];
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSNumber *stored = [defaults objectForKey:@"SunPadAspectRatioMode"];
+    if (stored == nil) {
+#if TARGET_OS_IOS
+        // Runtime mode 0 locks VI 4:3 and AURORA_VIEWPORT_FIT. Mode 2 uses the
+        // window surface. A stored choice still wins.
+        return SunPadAspectRatioFillScreen;
+#else
+        return SunPadAspectRatioOriginal;
+#endif
+    }
+    NSInteger mode = stored.integerValue;
     if (mode < SunPadAspectRatioOriginal || mode > SunPadAspectRatioFillScreen)
         return SunPadAspectRatioOriginal;
     return (SunPadAspectRatioMode)mode;

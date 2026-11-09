@@ -53,6 +53,8 @@ python3 "${repo_root}/scripts/stage-maintained-runtime.py" --verify ios "${runti
 # A path-clean rebuild must keep the digest of the file FetchContent verifies.
 python3 "${repo_root}/scripts/keep_caller_dawn_package_hash.py" \
   "${runtime_source}/CMakeLists.txt"
+python3 "${repo_root}/scripts/limit_ios_pipeline_workers.py" \
+  "${runtime_source}/aurora-main/lib/gfx/pipeline_cache.cpp"
 
 if [[ ! -f "${runtime_source}/CMakeLists.txt" ]] ||
    ! rg -q 'MKW_KARTPAD_REPO_ROOT' "${runtime_source}/cmake/PublicProducts.cmake"; then

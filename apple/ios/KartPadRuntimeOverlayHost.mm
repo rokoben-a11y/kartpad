@@ -638,8 +638,10 @@ void KartPadRemoveRollbackDirectories(NSString *supportRoot) {
 // the app (KartPad.app/GameData and KartPad.app/RetroRewind/RetroRewind6).
 // Launch links them into Application Support instead of asking for an import.
 // GameData is a symlink to the read-only packed tree. RetroRewind6 is a real
-// directory of links, with Code.pul, the XML and version.txt copied so later
-// size checks can read them. The parent RetroRewind directory stays writable,
+// directory of links. Code.pul, the XML, version.txt and the three Pulsar
+// config files are real copies: Pulsar opens Binaries/ConfigRT.pul,
+// ConfigCT.pul and ConfigBT.pul by name, and a symlink is not a DVD file.
+// The parent RetroRewind directory stays writable,
 // so Riivolution saves still land in RetroRewind/riivolution/save.
 // A packed GameData tree replaces whatever is at Application Support/GameData.
 // An older copy is moved aside, not imported. A packed 6.13.1 tree replaces
@@ -712,6 +714,26 @@ BOOL KartPadMirrorBundledTree(NSString *source, NSString *destination,
   return YES;
 }
 
+void KartPadRealizePulsarConfigFiles(NSString *bundled, NSString *installedRoot) {
+  NSFileManager *files = NSFileManager.defaultManager;
+  NSArray<NSString *> *configs = @[
+      @"Binaries/ConfigRT.pul", @"Binaries/ConfigCT.pul", @"Binaries/ConfigBT.pul"];
+  for (NSString *relative in configs) {
+    NSString *stock = [bundled stringByAppendingPathComponent:relative];
+    NSString *destination = [installedRoot stringByAppendingPathComponent:relative];
+    if (![files fileExistsAtPath:stock]) continue;
+    if ([files destinationOfSymbolicLinkAtPath:destination error:nil] != nil) {
+      [files removeItemAtPath:destination error:nil];
+    }
+    if ([files fileExistsAtPath:destination]) continue;
+    [files createDirectoryAtPath:destination.stringByDeletingLastPathComponent
+      withIntermediateDirectories:YES attributes:nil error:nil];
+    if (![files copyItemAtPath:stock toPath:destination error:nil]) {
+      NSLog(@"[KartPad] could not place the stock Pulsar config");
+    }
+  }
+}
+
 void KartPadProvisionBundledRetroRewind(NSString *supportRoot) {
   NSFileManager *files = NSFileManager.defaultManager;
   NSString *rrRootName = KartPadRetroRewindInstaller.installedRootPath.lastPathComponent;
@@ -734,6 +756,7 @@ void KartPadProvisionBundledRetroRewind(NSString *supportRoot) {
                                                encoding:NSUTF8StringEncoding error:nil];
   if ([marker isEqualToString:bundled] &&
       [files fileExistsAtPath:[installedRoot stringByAppendingPathComponent:@"version.txt"]]) {
+    KartPadRealizePulsarConfigFiles(bundled, installedRoot);
     return;
   }
   NSError *error = nil;
@@ -743,6 +766,7 @@ void KartPadProvisionBundledRetroRewind(NSString *supportRoot) {
       [NSString stringWithFormat:@".bundled-%@", NSUUID.UUID.UUIDString]];
   NSSet<NSString *> *copied = [NSSet setWithObjects:
       @"Binaries/Code.pul",
+      @"Binaries/ConfigRT.pul", @"Binaries/ConfigCT.pul", @"Binaries/ConfigBT.pul",
       @"xml/RetroRewind6.xml", @"version.txt", nil];
   if (error == nil && !KartPadMirrorBundledTree(bundled, staging, copied, &error)) {
     if (error == nil) error = KartPadGameDataError(6, @"Could not link packed Retro Rewind.");
@@ -758,6 +782,7 @@ void KartPadProvisionBundledRetroRewind(NSString *supportRoot) {
     return;
   }
   [bundled writeToFile:markerPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  KartPadRealizePulsarConfigFiles(bundled, installedRoot);
   NSURL *parentURL = [NSURL fileURLWithPath:installedParent isDirectory:YES];
   [parentURL setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:nil];
   KartPadEnsureRelativeRetroRewindRoot(nil);

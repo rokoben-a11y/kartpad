@@ -32,6 +32,8 @@ case "${product}" in
 esac
 
 python3 "${repo_root}/scripts/stage-maintained-runtime.py" --verify ios "${runtime_source}"
+python3 "${repo_root}/scripts/limit_ios_pipeline_workers.py" \
+  "${runtime_source}/aurora-main/lib/gfx/pipeline_cache.cpp"
 
 if [[ ! -f "${runtime_source}/CMakeLists.txt" ]] ||
    ! rg -q 'MKW_KARTPAD_REPO_ROOT' "${runtime_source}/cmake/PublicProducts.cmake"; then
