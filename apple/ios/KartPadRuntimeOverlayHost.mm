@@ -666,9 +666,11 @@ void KartPadRemoveRollbackDirectories(NSString *supportRoot) {
 //  - GameData becomes a symlink to the read-only bundled DATA tree.
 //  - RetroRewind/RetroRewind6 becomes a real directory tree whose files are
 //    symlinks into the bundle (Code.pul and the XML are small real copies so
-//    the installer's size/hash checks pass). The parent RetroRewind folder
-//    stays a real, writable directory, so Riivolution saves still land in
-//    RetroRewind/riivolution/save.
+//    the installer's size/hash checks pass). The three Pulsar config files
+//    are real copies too: Pulsar opens Binaries/ConfigRT.pul, ConfigCT.pul
+//    and ConfigBT.pul by name, and the game's file scan skips symlinks. The
+//    parent RetroRewind folder stays a real, writable directory, so
+//    Riivolution saves still land in RetroRewind/riivolution/save.
 // Existing valid imports are never touched. Links are rebuilt automatically
 // when the bundle path changes (reinstall/update).
 NSString *const kKartPadBundledRRMarker = @".kartpad-bundled-rr-source";
@@ -740,6 +742,26 @@ BOOL KartPadMirrorBundledTree(NSString *source, NSString *destination,
   return YES;
 }
 
+void KartPadRealizePulsarConfigFiles(NSString *bundled, NSString *installedRoot) {
+  NSFileManager *files = NSFileManager.defaultManager;
+  NSArray<NSString *> *configs = @[
+      @"Binaries/ConfigRT.pul", @"Binaries/ConfigCT.pul", @"Binaries/ConfigBT.pul"];
+  for (NSString *relative in configs) {
+    NSString *stock = [bundled stringByAppendingPathComponent:relative];
+    NSString *destination = [installedRoot stringByAppendingPathComponent:relative];
+    if (![files fileExistsAtPath:stock]) continue;
+    if ([files destinationOfSymbolicLinkAtPath:destination error:nil] != nil) {
+      [files removeItemAtPath:destination error:nil];
+    }
+    if ([files fileExistsAtPath:destination]) continue;
+    [files createDirectoryAtPath:destination.stringByDeletingLastPathComponent
+      withIntermediateDirectories:YES attributes:nil error:nil];
+    if (![files copyItemAtPath:stock toPath:destination error:nil]) {
+      NSLog(@"[KartPad] could not place the stock Pulsar config");
+    }
+  }
+}
+
 void KartPadProvisionBundledRetroRewind(NSString *supportRoot) {
   NSFileManager *files = NSFileManager.defaultManager;
   NSString *rrRootName = KartPadRetroRewindInstaller.installedRootPath.lastPathComponent;
@@ -757,6 +779,7 @@ void KartPadProvisionBundledRetroRewind(NSString *supportRoot) {
   const BOOL fromBundle = marker != nil;
   if (fromBundle && [marker isEqualToString:bundled] &&
       [files fileExistsAtPath:[installedRoot stringByAppendingPathComponent:@"version.txt"]]) {
+    KartPadRealizePulsarConfigFiles(bundled, installedRoot);
     return;  // Already mirrored from this exact bundle.
   }
   if (!fromBundle && [files fileExistsAtPath:installedRoot] &&
@@ -770,6 +793,7 @@ void KartPadProvisionBundledRetroRewind(NSString *supportRoot) {
       [NSString stringWithFormat:@".bundled-%@", NSUUID.UUID.UUIDString]];
   NSSet<NSString *> *copied = [NSSet setWithObjects:
       @"Binaries/Code.pul",
+      @"Binaries/ConfigRT.pul", @"Binaries/ConfigCT.pul", @"Binaries/ConfigBT.pul",
       @"xml/RetroRewind6.xml", @"version.txt", nil];
   if (error == nil && !KartPadMirrorBundledTree(bundled, staging, copied, &error)) {
     if (error == nil) error = KartPadGameDataError(6, @"Could not link bundled Retro Rewind.");
@@ -785,6 +809,7 @@ void KartPadProvisionBundledRetroRewind(NSString *supportRoot) {
     return;
   }
   [bundled writeToFile:markerPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  KartPadRealizePulsarConfigFiles(bundled, installedRoot);
   NSURL *parentURL = [NSURL fileURLWithPath:installedParent isDirectory:YES];
   [parentURL setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:nil];
   KartPadEnsureRelativeRetroRewindRoot(nil);
