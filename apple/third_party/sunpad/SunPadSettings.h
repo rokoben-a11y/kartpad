@@ -21,8 +21,9 @@ typedef NS_ENUM(NSInteger, SunPadAspectRatioMode) {
 @property(nonatomic, assign) NSInteger renderScale;
 - (float)renderScaleFloat;
 
-/* Output aspect ratio. Original 4:3 is the stable default; wider modes are
- * experimental and affect only game rendering, never touch-control layout. */
+/* Output aspect ratio. Mac keeps original 4:3 until a choice is stored.
+ * iOS uses surface fill until a choice is stored, so the runtime does not
+ * lock a 4:3 fit inside the window. The choice affects game rendering only. */
 @property(nonatomic, assign) SunPadAspectRatioMode aspectRatioMode;
 
 /* Optional developer performance overlay. Off by default for normal play. */
