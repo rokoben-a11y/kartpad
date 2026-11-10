@@ -65,6 +65,17 @@ def _verify_checkout(repo: Path, dependency: dict[str, Any]) -> None:
         raise BuildError(f"{dependency['name']} source must be clean")
 
 
+def _clone_pinned(dependency: dict[str, Any], path: Path) -> None:
+    # Check out the pinned commit straight away. Checking out upstream's newest commit
+    # first breaks when upstream later turns a tracked folder into a submodule: WiiCompiled
+    # 0.9.0 did that with aurora-main, and the pinned checkout then refused to overwrite it
+    # (kartpad#509).
+    run(["git", "clone", "--no-checkout", dependency["repository"], str(path)])
+    run(["git", "-C", str(path), "checkout", "--detach", dependency["commit"]])
+    run(["git", "-C", str(path), "submodule", "update", "--init", "--recursive"])
+    run(["git", "-C", str(path), "remote", "set-url", "--push", "origin", "DISABLED"])
+
+
 def _prepare_runtime_sources(repo: Path, dependency: dict[str, Any], install: bool) -> None:
     _prepare_gitlinks(repo, list(dependency["platformPaths"].values()), install)
 
@@ -158,10 +169,7 @@ def prepare_dependencies(repo: Path, profile: Profile, install: bool, target: st
             if not install:
                 raise BuildError(f"missing {name}; run ./scripts/build-user-ipa.sh bootstrap")
             path.parent.mkdir(parents=True, exist_ok=True)
-            run(["git", "clone", "--recurse-submodules", dependency["repository"], str(path)])
-            run(["git", "-C", str(path), "checkout", "--detach", dependency["commit"]])
-            run(["git", "-C", str(path), "submodule", "update", "--init", "--recursive"])
-            run(["git", "-C", str(path), "remote", "set-url", "--push", "origin", "DISABLED"])
+            _clone_pinned(dependency, path)
         _verify_checkout(repo, dependency)
 
     if target in PACK_GITLINKS:
