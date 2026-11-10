@@ -1,6 +1,7 @@
 #import "SunPadGameOverlay.h"
 
 #import "SunPadDiagnostics.h"
+#import "SunPadInnerControlBand.h"
 #import "SunPadInputMixer.h"
 #import "SunPadSettings.h"
 
@@ -135,6 +136,14 @@ static CGRect SunPadFrameAtNormalizedCenter(CGRect safe, CGFloat x, CGFloat y,
     return CGRectMake(CGRectGetMinX(safe) + x * safe.size.width - width * 0.5,
                       CGRectGetMinY(safe) + y * safe.size.height - height * 0.5,
                       width, height);
+}
+
+static SunPadLayoutRect SunPadLayoutRectFromCGRect(CGRect rect) {
+    return SunPadLayoutRect{rect.origin.x, rect.origin.y, rect.size.width, rect.size.height};
+}
+
+static CGRect SunPadCGRectFromLayoutRect(SunPadLayoutRect rect) {
+    return CGRectMake(rect.x, rect.y, rect.width, rect.height);
 }
 
 // Keep the original persisted key names so layouts created while the D-pad
@@ -910,16 +919,82 @@ static CGFloat SunPadDefaultSizeScaleForControl(UIView *view, NSString *identifi
 
 #pragma mark - Layout
 
+- (void)safeAreaInsetsDidChange {
+    [super safeAreaInsetsDidChange];
+    [self setNeedsLayout];
+}
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    if (previousTraitCollection.horizontalSizeClass != self.traitCollection.horizontalSizeClass ||
+        previousTraitCollection.verticalSizeClass != self.traitCollection.verticalSizeClass)
+        [self setNeedsLayout];
+}
+#pragma clang diagnostic pop
+
+// Tech Talk 111463: the inner display is regular x regular in every
+// orientation, and touch controls belong in the lower region. The cover
+// display keeps a compact size class, so it stays on the full safe rect.
+// Scene bounds and per-edge safe-area insets choose the rect. The fold is
+// reservedRegionsOfKind:division and an active camera is occlusion.
+- (CGRect)touchControlArea {
+    UIEdgeInsets insets = UIEdgeInsetsZero;
+    if (@available(iOS 11.0, *))
+        insets = self.safeAreaInsets;
+    SunPadLayoutRect divisions[8];
+    SunPadLayoutRect occlusions[8];
+    size_t divisionCount = 0;
+    size_t occlusionCount = 0;
+#if __has_include(<UIKit/UIViewReservedRegion.h>)
+    if (@available(iOS 27.1, *)) {
+        for (UIViewReservedRegion *region in
+             [self reservedRegionsOfKind:[UIViewReservedRegionKind divisionRegionKind]
+                                 options:UIViewReservedRegionQueryOptionsNone]) {
+            if (!region.active || divisionCount >= 8)
+                continue;
+            divisions[divisionCount++] = SunPadLayoutRectFromCGRect(region.frame);
+        }
+        for (UIViewReservedRegion *region in
+             [self reservedRegionsOfKind:[UIViewReservedRegionKind occlusionRegionKind]
+                                 options:UIViewReservedRegionQueryOptionsNone]) {
+            if (!region.active || occlusionCount >= 8)
+                continue;
+            occlusions[occlusionCount++] = SunPadLayoutRectFromCGRect(region.frame);
+        }
+    }
+#endif
+    BOOL regularWidth = self.traitCollection.horizontalSizeClass == UIUserInterfaceSizeClassRegular;
+    BOOL regularHeight = self.traitCollection.verticalSizeClass == UIUserInterfaceSizeClassRegular;
+    // The maintainer iPad arrangement stays on the full safe rect. iPhone Duo
+    // remains an iPhone app; its inner display is selected by the regular x
+    // regular size classes above, not by the iPad idiom.
+    if (self.traitCollection.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
+        regularWidth = NO;
+        regularHeight = NO;
+    }
+    SunPadLayoutRect area = SunPadTouchControlArea(
+        SunPadLayoutRectFromCGRect(self.bounds),
+        insets.left, insets.top, insets.right, insets.bottom,
+        regularWidth, regularHeight,
+        divisions, divisionCount, occlusions, occlusionCount);
+    return SunPadCGRectFromLayoutRect(area);
+}
+
 - (void)layoutSubviews {
     [super layoutSubviews];
-    CGRect safe = self.bounds;
-    if (@available(iOS 11.0, *)) {
-        safe = UIEdgeInsetsInsetRect(safe, self.safeAreaInsets);
-    }
+    UIEdgeInsets screenInsets = UIEdgeInsetsZero;
+    if (@available(iOS 11.0, *))
+        screenInsets = self.safeAreaInsets;
+    CGRect screenSafe = UIEdgeInsetsInsetRect(self.bounds, screenInsets);
+    CGRect safe = [self touchControlArea];
     // BellPad's landscape layout math: scale to a reference 800x380 area on
-    // phones and a fixed larger set on iPads (width >= 1000).
+    // phones and a fixed larger set on iPads (width >= 1000). On the inner
+    // display, `safe` is the bottom band, so this same arrangement sits where
+    // the keyboard sits instead of across the middle of the scene.
     BOOL pad = self.traitCollection.userInterfaceIdiom == UIUserInterfaceIdiomPad &&
-               safe.size.width >= 1000.0;
+               screenSafe.size.width >= 1000.0;
     BOOL phone = SunPadUsesPhoneLayoutDefaults(self);
     CGFloat baseScale = pad ? 1.0
                             : std::min<CGFloat>(1.0, std::min(safe.size.width / 800.0,
@@ -939,7 +1014,8 @@ static CGFloat SunPadDefaultSizeScaleForControl(UIView *view, NSString *identifi
                    CGRectGetMaxY(safe) - stick - margin, stick, stick);
     [self placeControl:_moveStick
           defaultFrame:moveDefault
-            identifier:@"move"];
+            identifier:@"move"
+              safeArea:safe];
     CGFloat camera = (pad ? 112.0 : 86.0 * baseScale) * controlScale;
     CGRect cameraDefault = phone ?
         SunPadFrameAtNormalizedCenter(safe, 0.9233055556, 0.8130067568, camera, camera) : pad ?
@@ -948,7 +1024,8 @@ static CGFloat SunPadDefaultSizeScaleForControl(UIView *view, NSString *identifi
                    CGRectGetMaxY(safe) - margin - camera, camera, camera);
     [self placeControl:_cStick
           defaultFrame:cameraDefault
-            identifier:@"c"];
+            identifier:@"c"
+              safeArea:safe];
 
     SunPadGameButton *a = [self buttonWithMask:SunPadButtonA];
     SunPadGameButton *b = [self buttonWithMask:SunPadButtonB];
@@ -964,7 +1041,8 @@ static CGFloat SunPadDefaultSizeScaleForControl(UIView *view, NSString *identifi
                    large, large);
     [self placeControl:a
           defaultFrame:aDefault
-            identifier:@"A"];
+            identifier:@"A"
+              safeArea:safe];
     CGRect bDefault = phone ?
         SunPadFrameAtNormalizedCenter(safe, 0.8398611111, 0.6898648649, medium, medium) : pad ?
         SunPadFrameAtNormalizedCenter(safe, 0.8360175695, 0.8092037229, medium, medium) :
@@ -972,7 +1050,8 @@ static CGFloat SunPadDefaultSizeScaleForControl(UIView *view, NSString *identifi
                    CGRectGetMidY(a.frame) + 8.0, medium, medium);
     [self placeControl:b
           defaultFrame:bDefault
-            identifier:@"B"];
+            identifier:@"B"
+              safeArea:safe];
     CGRect xDefault = phone ?
         SunPadFrameAtNormalizedCenter(safe, 0.9034166667, 0.4258445946, small, small) : pad ?
         SunPadFrameAtNormalizedCenter(safe, 0.9593704246, 0.7156153051, small, small) :
@@ -980,7 +1059,8 @@ static CGFloat SunPadDefaultSizeScaleForControl(UIView *view, NSString *identifi
                    CGRectGetMinY(a.frame) - small - 10.0 * scale, small, small);
     [self placeControl:x
           defaultFrame:xDefault
-            identifier:@"X"];
+            identifier:@"X"
+              safeArea:safe];
     CGRect yDefault = phone ?
         SunPadFrameAtNormalizedCenter(safe, 0.8452500000, 0.5268581081, small, small) : pad ?
         SunPadFrameAtNormalizedCenter(safe, 0.9542459736, 0.7869700103, small, small) :
@@ -988,7 +1068,8 @@ static CGFloat SunPadDefaultSizeScaleForControl(UIView *view, NSString *identifi
                    CGRectGetMinY(a.frame) - small + 8.0, small, small);
     [self placeControl:y
           defaultFrame:yDefault
-            identifier:@"Y"];
+            identifier:@"Y"
+              safeArea:safe];
 
     CGFloat shoulderWidth = (pad ? 132.0 : 94.0 * baseScale) * controlScale;
     CGFloat shoulderY = CGRectGetMinY(safe) + (pad ? 92.0 : 68.0 * baseScale);
@@ -1000,7 +1081,8 @@ static CGFloat SunPadDefaultSizeScaleForControl(UIView *view, NSString *identifi
         CGRectMake(CGRectGetMinX(safe) + margin, shoulderY, shoulderWidth, small);
     [self placeControl:[self buttonWithMask:SunPadButtonL]
           defaultFrame:lDefault
-            identifier:@"L"];
+            identifier:@"L"
+              safeArea:safe];
     CGFloat rightShoulderWidth = shoulderWidth + 2.0 * small + 24.0 * scale;
     SunPadGameButton *rightShoulder = [self buttonWithMask:SunPadButtonR];
     CGRect rDefault = phone ?
@@ -1012,7 +1094,8 @@ static CGFloat SunPadDefaultSizeScaleForControl(UIView *view, NSString *identifi
                    rightShoulderWidth, small);
     [self placeControl:rightShoulder
           defaultFrame:rDefault
-            identifier:@"R"];
+            identifier:@"R"
+              safeArea:safe];
     CGRect zDefault = phone ?
         SunPadFrameAtNormalizedCenter(safe, 0.9712500000, 0.4350788288, small, small) : pad ?
         SunPadFrameAtNormalizedCenter(safe, 0.8275988287, 0.7213029990, small, small) :
@@ -1020,7 +1103,8 @@ static CGFloat SunPadDefaultSizeScaleForControl(UIView *view, NSString *identifi
                    shoulderY, small, small);
     [self placeControl:[self buttonWithMask:SunPadButtonZ]
           defaultFrame:zDefault
-            identifier:@"Z"];
+            identifier:@"Z"
+              safeArea:safe];
     CGFloat startWidth = (pad ? 116.0 : 92.0 * baseScale) * controlScale;
     CGRect startDefault = phone ?
         SunPadFrameAtNormalizedCenter(safe, 0.0902222222, 0.1128941441,
@@ -1031,7 +1115,8 @@ static CGFloat SunPadDefaultSizeScaleForControl(UIView *view, NSString *identifi
                    CGRectGetMinY(safe) + margin, startWidth, small);
     [self placeControl:[self buttonWithMask:SunPadButtonStart]
           defaultFrame:startDefault
-            identifier:@"Start"];
+            identifier:@"Start"
+              safeArea:safe];
 
     CGFloat d = (pad ? 48.0 : 36.0 * baseScale) * controlScale;
     CGFloat dx = CGRectGetMaxX(_moveStick.frame) + (pad ? 34.0 : 18.0 * scale);
@@ -1051,15 +1136,15 @@ static CGFloat SunPadDefaultSizeScaleForControl(UIView *view, NSString *identifi
 
     CGFloat settingsSide = 40.0;
     CGFloat menuInset = 12.0;
-    _menuButton.frame = CGRectMake(CGRectGetMaxX(safe) - settingsSide - menuInset,
-                                   CGRectGetMinY(safe) + menuInset,
+    _menuButton.frame = CGRectMake(CGRectGetMaxX(screenSafe) - settingsSide - menuInset,
+                                   CGRectGetMinY(screenSafe) + menuInset,
                                    settingsSide, settingsSide);
 
-    [self layoutSettingsPanelInSafeArea:safe];
-    CGFloat editorWidth = MIN(560.0, CGRectGetWidth(safe) - 24.0);
+    [self layoutSettingsPanelInSafeArea:screenSafe];
+    CGFloat editorWidth = MIN(560.0, CGRectGetWidth(screenSafe) - 24.0);
     CGFloat editorHeight = 60.0;
-    _editorBar.frame = CGRectMake(CGRectGetMidX(safe) - editorWidth * 0.5,
-                                  CGRectGetMaxY(safe) - editorHeight - 12.0,
+    _editorBar.frame = CGRectMake(CGRectGetMidX(screenSafe) - editorWidth * 0.5,
+                                  CGRectGetMaxY(screenSafe) - editorHeight - 12.0,
                                   editorWidth, editorHeight);
     [self updateControlAppearance];
     if (!_settingsPanel.hidden)
@@ -1121,7 +1206,7 @@ static CGFloat SunPadDefaultSizeScaleForControl(UIView *view, NSString *identifi
     }
 }
 
-- (void)placeControl:(UIView *)control defaultFrame:(CGRect)defaultFrame identifier:(NSString *)identifier {
+- (void)placeControl:(UIView *)control defaultFrame:(CGRect)defaultFrame identifier:(NSString *)identifier safeArea:(CGRect)safe {
     NSDictionary *savedScales = [[NSUserDefaults standardUserDefaults]
         dictionaryForKey:@"SunPadControlSizeScales"];
     CGFloat individualScale = savedScales[identifier] != nil
@@ -1140,9 +1225,6 @@ static CGFloat SunPadDefaultSizeScaleForControl(UIView *view, NSString *identifi
             normalized = [savedPoint CGPointValue];
         normalized.x = std::clamp<CGFloat>(normalized.x, 0.0, 1.0);
         normalized.y = std::clamp<CGFloat>(normalized.y, 0.0, 1.0);
-        CGRect safe = self.bounds;
-        if (@available(iOS 11.0, *))
-            safe = UIEdgeInsetsInsetRect(safe, self.safeAreaInsets);
         CGFloat cx = CGRectGetMinX(safe) + normalized.x * safe.size.width;
         CGFloat cy = CGRectGetMinY(safe) + normalized.y * safe.size.height;
         CGFloat halfW = control.bounds.size.width * 0.5;
@@ -1589,9 +1671,7 @@ static CGFloat SunPadDefaultSizeScaleForControl(UIView *view, NSString *identifi
                                  control.center.y + translation.y);
     [drag setTranslation:CGPointZero inView:self];
 
-    CGRect safe = self.bounds;
-    if (@available(iOS 11.0, *))
-        safe = UIEdgeInsetsInsetRect(safe, self.safeAreaInsets);
+    CGRect safe = [self touchControlArea];
     CGFloat halfWidth = MIN(control.bounds.size.width * 0.5, safe.size.width * 0.5);
     CGFloat halfHeight = MIN(control.bounds.size.height * 0.5, safe.size.height * 0.5);
     center.x = std::clamp(center.x, CGRectGetMinX(safe) + halfWidth,
