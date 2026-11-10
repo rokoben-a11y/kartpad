@@ -51,8 +51,6 @@
 	</dict>
 	<key>UIFileSharingEnabled</key>
 	<true/>
-	<key>UIRequiresFullScreen</key>
-	<true/>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UIRequiredDeviceCapabilities</key>
