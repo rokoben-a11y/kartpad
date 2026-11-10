@@ -594,7 +594,9 @@ BOOL KartPadEnsureRelativeRetroRewindRoot(NSError **error) {
       @"retro_rewind_root", @"RetroRewind/RetroRewind6", error);
 }
 
+void KartPadProvisionBundledContent();
 BOOL KartPadInstalledRetroRewindIsValid() {
+  KartPadProvisionBundledContent();
   if (![KartPadRetroRewindInstaller isInstalled]) return NO;
   NSError *error = nil;
   return KartPadEnsureRelativeRetroRewindRoot(&error) && error == nil;
@@ -682,7 +684,153 @@ void KartPadRemoveRollbackDirectories(NSString *supportRoot) {
   }
 }
 
+// Personal build: fully self-contained, offline install. The Mario Kart Wii
+// DATA tree and the pinned Retro Rewind 6.13.1 content ship inside the app
+// bundle (KartPad.app/GameData and KartPad.app/RetroRewind/RetroRewind6).
+// On launch, wire them into Application Support in place of an import:
+//  - GameData becomes a symlink to the read-only bundled DATA tree.
+//  - RetroRewind/RetroRewind6 becomes a real directory tree whose files are
+//    symlinks into the bundle (Code.pul and the XML are small real copies so
+//    the installer's size/hash checks pass). The parent RetroRewind folder
+//    stays a real, writable directory, so Riivolution saves still land in
+//    RetroRewind/riivolution/save.
+// Existing valid imports are never touched. Links are rebuilt automatically
+// when the bundle path changes (reinstall/update).
+NSString *const kKartPadBundledRRMarker = @".kartpad-bundled-rr-source";
+
+void KartPadProvisionBundledGameData(NSString *supportRoot) {
+  NSFileManager *files = NSFileManager.defaultManager;
+  NSString *bundled = [NSBundle.mainBundle.bundlePath
+      stringByAppendingPathComponent:@"GameData"];
+  if (![files fileExistsAtPath:[bundled stringByAppendingPathComponent:@"sys/fst.bin"]]) {
+    return;
+  }
+  NSString *dataDirectory = [supportRoot stringByAppendingPathComponent:@"GameData"];
+  NSDictionary *attributes = [files attributesOfItemAtPath:dataDirectory error:nil];
+  if (attributes != nil) {
+    if ([attributes[NSFileType] isEqualToString:NSFileTypeSymbolicLink]) {
+      NSString *target = [files destinationOfSymbolicLinkAtPath:dataDirectory error:nil];
+      if ([target isEqualToString:bundled]) return;
+      [files removeItemAtPath:dataDirectory error:nil];
+    } else {
+      NSError *validationError = nil;
+      if (KartPadValidateExtractedRoot(dataDirectory, &validationError) == nil &&
+          validationError == nil) {
+        return;  // A valid imported copy already exists; leave it alone.
+      }
+      [files removeItemAtPath:dataDirectory error:nil];
+    }
+  }
+  NSError *linkError = nil;
+  if (![files createSymbolicLinkAtPath:dataDirectory withDestinationPath:bundled
+                                 error:&linkError]) {
+    NSLog(@"[KartPad] could not link bundled game data: %@",
+          linkError.localizedDescription);
+    return;
+  }
+  NSError *configError = nil;
+  KartPadEnsureRelativeDvdRoot(&configError);
+  SunPadSettings *settings = SunPadSettings.sharedSettings;
+  settings.retainedGameDataPath = nil;
+  settings.extractedGameRoot = dataDirectory;
+  [settings synchronize];
+}
+
+BOOL KartPadMirrorBundledTree(NSString *source, NSString *destination,
+                              NSSet<NSString *> *copiedPaths, NSError **error) {
+  NSFileManager *files = NSFileManager.defaultManager;
+  if (![files createDirectoryAtPath:destination withIntermediateDirectories:YES
+                         attributes:nil error:error]) {
+    return NO;
+  }
+  NSDirectoryEnumerator<NSString *> *walker = [files enumeratorAtPath:source];
+  for (NSString *relative in walker) {
+    NSString *from = [source stringByAppendingPathComponent:relative];
+    NSString *to = [destination stringByAppendingPathComponent:relative];
+    NSString *type = walker.fileAttributes[NSFileType];
+    if ([type isEqualToString:NSFileTypeDirectory]) {
+      if (![files createDirectoryAtPath:to withIntermediateDirectories:YES
+                             attributes:nil error:error]) {
+        return NO;
+      }
+    } else if ([copiedPaths containsObject:relative]) {
+      if (![files copyItemAtPath:from toPath:to error:error]) return NO;
+    } else {
+      if (![files createSymbolicLinkAtPath:to withDestinationPath:from error:error] &&
+          ![files copyItemAtPath:from toPath:to error:error]) {
+        return NO;
+      }
+    }
+  }
+  return YES;
+}
+
+void KartPadProvisionBundledRetroRewind(NSString *supportRoot) {
+  NSFileManager *files = NSFileManager.defaultManager;
+  NSString *rrRootName = KartPadRetroRewindInstaller.installedRootPath.lastPathComponent;
+  NSString *bundled = [[NSBundle.mainBundle.bundlePath
+      stringByAppendingPathComponent:@"RetroRewind"]
+      stringByAppendingPathComponent:rrRootName];
+  if (![files fileExistsAtPath:[bundled stringByAppendingPathComponent:@"version.txt"]]) {
+    return;
+  }
+  NSString *installedParent = [supportRoot stringByAppendingPathComponent:@"RetroRewind"];
+  NSString *installedRoot = [installedParent stringByAppendingPathComponent:rrRootName];
+  NSString *markerPath = [installedParent stringByAppendingPathComponent:kKartPadBundledRRMarker];
+  NSString *marker = [NSString stringWithContentsOfFile:markerPath
+                                               encoding:NSUTF8StringEncoding error:nil];
+  const BOOL fromBundle = marker != nil;
+  if (fromBundle && [marker isEqualToString:bundled] &&
+      [files fileExistsAtPath:[installedRoot stringByAppendingPathComponent:@"version.txt"]]) {
+    return;  // Already mirrored from this exact bundle.
+  }
+  if (!fromBundle && [files fileExistsAtPath:installedRoot] &&
+      [KartPadRetroRewindInstaller isInstalled]) {
+    return;  // A valid installed copy already exists; leave it alone.
+  }
+  NSError *error = nil;
+  [files createDirectoryAtPath:installedParent withIntermediateDirectories:YES
+                    attributes:nil error:&error];
+  NSString *staging = [installedParent stringByAppendingPathComponent:
+      [NSString stringWithFormat:@".bundled-%@", NSUUID.UUID.UUIDString]];
+  NSSet<NSString *> *copied = [NSSet setWithObjects:
+      @"Binaries/Code.pul",
+      @"xml/RetroRewind6.xml", @"version.txt", nil];
+  if (error == nil && !KartPadMirrorBundledTree(bundled, staging, copied, &error)) {
+    if (error == nil) error = KartPadGameDataError(6, @"Could not link bundled Retro Rewind.");
+  }
+  if (error == nil && [files fileExistsAtPath:installedRoot]) {
+    [files removeItemAtPath:installedRoot error:&error];
+  }
+  if (error == nil) [files moveItemAtPath:staging toPath:installedRoot error:&error];
+  if (error != nil) {
+    NSLog(@"[KartPad] could not provision bundled Retro Rewind: %@",
+          error.localizedDescription);
+    [files removeItemAtPath:staging error:nil];
+    return;
+  }
+  [bundled writeToFile:markerPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  NSURL *parentURL = [NSURL fileURLWithPath:installedParent isDirectory:YES];
+  [parentURL setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:nil];
+  KartPadEnsureRelativeRetroRewindRoot(nil);
+}
+
+void KartPadProvisionBundledContent() {
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    NSString *supportRoot = KartPadSupportRoot();
+    [NSFileManager.defaultManager createDirectoryAtPath:supportRoot
+                            withIntermediateDirectories:YES
+                                             attributes:@{NSFileProtectionKey:
+                                                 NSFileProtectionCompleteUntilFirstUserAuthentication}
+                                                  error:nil];
+    KartPadProvisionBundledGameData(supportRoot);
+    KartPadProvisionBundledRetroRewind(supportRoot);
+  });
+}
+
 BOOL KartPadInstalledGameDataIsValid() {
+  KartPadProvisionBundledContent();
   NSString *supportRoot = KartPadSupportRoot();
   KartPadRecoverInterruptedImport(supportRoot);
   NSString *dataDirectory = [supportRoot stringByAppendingPathComponent:@"GameData"];
@@ -872,7 +1020,7 @@ static NSString *const kKartPadPreferredGameKey = @"KartPadPreferredGame";
 }
 
 - (void)showUpdate {
-  NSDictionary<NSString *, NSString *> *update = KartPadKnownUpdate();
+  NSDictionary<NSString *, NSString *> *update = nil;
   if (update == nil) {
     self.updateButton.hidden = YES;
     return;
@@ -1166,12 +1314,9 @@ static NSString *const kKartPadPreferredGameKey = @"KartPadPreferredGame";
   [help setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
   self.updateButton = [self link:@"Update available" symbol:@"arrow.down.circle" action:^{ [weakSelf showUpdate]; }];
   self.updateButton.accessibilityIdentifier = @"kartpad.setup.update";
-  self.updateButton.hidden = KartPadKnownUpdate() == nil;
+  // Personal build: no KartPad release check and no "Update available" notice.
+  self.updateButton.hidden = YES;
   [self.updateButton setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-  KartPadRefreshUpdate(NO, ^(NSDictionary<NSString *, NSString *> *update, BOOL checked) {
-    (void)checked;
-    weakSelf.updateButton.hidden = update == nil;
-  });
   [identity setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
   self.header = [[UIStackView alloc] initWithArrangedSubviews:@[identity, [UIView new], self.updateButton, self.themeButton, help]];
   self.header.axis = UILayoutConstraintAxisHorizontal;
@@ -1444,9 +1589,11 @@ static NSString *const kKartPadPreferredGameKey = @"KartPadPreferredGame";
     [self showOptions];
     return;
   }
+  // Personal build: launch the installed, pinned Retro Rewind content without
+  // fetching the official version feed, so play works offline and a newer
+  // Retro Rewind release never blocks launch. (Retro WFC online is untouched.)
   if (self.selectedRetroRewind && !self.retroVersionChecked) {
-    [self checkRetroRewindVersionAndContinue];
-    return;
+    self.retroVersionChecked = YES;
   }
   if (self.selectedRetroRewind && !KartPadInstalledRetroRewindIsValid()) {
     [self showRetroRewindOptions];
@@ -4818,6 +4965,7 @@ static void KartPadApplySoundLevels(BOOL persist) {
 
 extern "C" bool KartPadMobileEnsureGameDataAvailable() {
   KartPadSystemDiagnosticsStart();
+  KartPadProvisionBundledContent();
   KartPadApplyPrivateServerAtLaunch();
   KartPadApplyCountryAtLaunch();
   NSError *miiError = nil;
