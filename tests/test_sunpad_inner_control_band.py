@@ -50,11 +50,17 @@ class InnerControlBandTests(unittest.TestCase):
         self.assertIn("kSunPadInnerControlBandFraction = 0.40", HEADER.read_text())
 
     def test_fill_build_and_cover_layout_inputs_stay(self) -> None:
-        self.assertEqual(json.loads((ROOT / "version.json").read_text())["build"], 274)
+        self.assertEqual(json.loads((ROOT / "version.json").read_text())["build"], 275)
         for plist in ("apple/ios/Info.plist", "apple/ios/RuntimeInfo.plist"):
             self.assertNotIn("UIRequiresFullScreen", (ROOT / plist).read_text())
         settings = (ROOT / "apple/third_party/sunpad/SunPadSettings.mm").read_text()
         self.assertIn("return SunPadAspectRatioFillScreen;", settings)
+
+    def test_bundled_offline_build_opens_the_game(self) -> None:
+        host = (ROOT / "apple/ios/KartPadRuntimeOverlayHost.mm").read_text()
+        self.assertIn('registerDefaults:@{@"KartPadPreferredGame": @"base"}', host)
+        self.assertIn('@"GameData/sys/fst.bin"', host)
+        self.assertIn("KartPadProvisionBundledContent();", host)
 
 
 if __name__ == "__main__":

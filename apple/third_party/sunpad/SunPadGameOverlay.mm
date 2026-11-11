@@ -952,14 +952,16 @@ static CGFloat SunPadDefaultSizeScaleForControl(UIView *view, NSString *identifi
         for (UIViewReservedRegion *region in
              [self reservedRegionsOfKind:[UIViewReservedRegionKind divisionRegionKind]
                                  options:UIViewReservedRegionQueryOptionsNone]) {
-            if (!region.active || divisionCount >= 8)
+            if (!region.active || divisionCount >= 8 ||
+                CGRectIsNull(region.frame) || CGRectIsEmpty(region.frame))
                 continue;
             divisions[divisionCount++] = SunPadLayoutRectFromCGRect(region.frame);
         }
         for (UIViewReservedRegion *region in
              [self reservedRegionsOfKind:[UIViewReservedRegionKind occlusionRegionKind]
                                  options:UIViewReservedRegionQueryOptionsNone]) {
-            if (!region.active || occlusionCount >= 8)
+            if (!region.active || occlusionCount >= 8 ||
+                CGRectIsNull(region.frame) || CGRectIsEmpty(region.frame))
                 continue;
             occlusions[occlusionCount++] = SunPadLayoutRectFromCGRect(region.frame);
         }

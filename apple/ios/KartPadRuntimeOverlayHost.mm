@@ -851,6 +851,15 @@ void KartPadProvisionBundledContent() {
                                                   error:nil];
     KartPadProvisionBundledGameData(supportRoot);
     KartPadProvisionBundledRetroRewind(supportRoot);
+    // Personal offline build: with the game data inside the app, open
+    // Mario Kart Wii on launch unless the player chose otherwise in
+    // On Launch (a registered default never overrides a saved choice).
+    NSString *bundledData = [NSBundle.mainBundle.bundlePath
+        stringByAppendingPathComponent:@"GameData/sys/fst.bin"];
+    if ([NSFileManager.defaultManager fileExistsAtPath:bundledData]) {
+      [NSUserDefaults.standardUserDefaults
+          registerDefaults:@{@"KartPadPreferredGame": @"base"}];
+    }
   });
 }
 
@@ -1557,7 +1566,16 @@ static NSString *const kKartPadPreferredGameKey = @"KartPadPreferredGame";
   [self.root presentViewController:alert animated:YES completion:nil];
 }
 
+// Personal offline build: Retro Rewind is bundled at the pinned version, so
+// never fetch the official version feed and never ask for an update.
+static const BOOL kKartPadPersonalOffline = YES;
+
 - (void)checkRetroRewindVersionAndContinue {
+  if (kKartPadPersonalOffline) {
+    self.retroVersionChecked = YES;
+    [self completeSelectedMode];
+    return;
+  }
   UIAlertController *progress = [UIAlertController
       alertControllerWithTitle:@"Checking Retro Rewind"
                        message:@"Checking the official current version…"
