@@ -58,7 +58,11 @@ class InnerControlBandTests(unittest.TestCase):
 
     def test_bundled_offline_build_opens_the_game(self) -> None:
         host = (ROOT / "apple/ios/KartPadRuntimeOverlayHost.mm").read_text()
-        self.assertIn('registerDefaults:@{@"KartPadPreferredGame": @"base"}', host)
+        self.assertIn('registerDefaults:@{@"KartPadPreferredGame": @"retro_rewind"}', host)
+        mirror = host.split("BOOL KartPadMirrorBundledTree(", 1)[1].split("\n}\n", 1)[0]
+        self.assertNotIn("createSymbolicLinkAtPath", mirror)
+        self.assertIn('kKartPadBundledRRLayout = @"real-files-v2"', host)
+        self.assertIn("[expectedMarker writeToFile:markerPath", host)
         self.assertIn('@"GameData/sys/fst.bin"', host)
         self.assertIn("KartPadProvisionBundledContent();", host)
 

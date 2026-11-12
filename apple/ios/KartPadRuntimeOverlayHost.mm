@@ -699,6 +699,9 @@ void KartPadRemoveRollbackDirectories(NSString *supportRoot) {
 // Existing valid imports are never touched. Links are rebuilt automatically
 // when the bundle path changes (reinstall/update).
 NSString *const kKartPadBundledRRMarker = @".kartpad-bundled-rr-source";
+// Bumped when the mirrored layout changes, so an older mirror (symlinked
+// files, before 0.8.10 duo build 13) is rebuilt from the bundle on launch.
+NSString *const kKartPadBundledRRLayout = @"real-files-v2";
 
 void KartPadProvisionBundledGameData(NSString *supportRoot) {
   NSFileManager *files = NSFileManager.defaultManager;
@@ -755,13 +758,14 @@ BOOL KartPadMirrorBundledTree(NSString *source, NSString *destination,
                              attributes:nil error:error]) {
         return NO;
       }
-    } else if ([copiedPaths containsObject:relative]) {
-      if (![files copyItemAtPath:from toPath:to error:error]) return NO;
     } else {
-      if (![files createSymbolicLinkAtPath:to withDestinationPath:from error:error] &&
-          ![files copyItemAtPath:from toPath:to error:error]) {
-        return NO;
-      }
+      // Every Retro Rewind file is a real file, exactly like the official
+      // installer leaves it: symlinked pack files gave "Invalid Pulsar Config"
+      // (0.8.1) and an OS panic "ARCInitHandle: bad archive format" (0.8.10).
+      // On the iPhone's single APFS data volume this copy is a clone, so it
+      // takes no extra space. copiedPaths is kept for callers; all files copy.
+      (void)copiedPaths;
+      if (![files copyItemAtPath:from toPath:to error:error]) return NO;
     }
   }
   return YES;
@@ -802,7 +806,8 @@ void KartPadProvisionBundledRetroRewind(NSString *supportRoot) {
   NSString *marker = [NSString stringWithContentsOfFile:markerPath
                                                encoding:NSUTF8StringEncoding error:nil];
   const BOOL fromBundle = marker != nil;
-  if (fromBundle && [marker isEqualToString:bundled] &&
+  NSString *expectedMarker = [NSString stringWithFormat:@"%@\n%@", bundled, kKartPadBundledRRLayout];
+  if (fromBundle && [marker isEqualToString:expectedMarker] &&
       [files fileExistsAtPath:[installedRoot stringByAppendingPathComponent:@"version.txt"]]) {
     KartPadRealizePulsarConfigFiles(bundled, installedRoot);
     return;  // Already mirrored from this exact bundle.
@@ -833,7 +838,7 @@ void KartPadProvisionBundledRetroRewind(NSString *supportRoot) {
     [files removeItemAtPath:staging error:nil];
     return;
   }
-  [bundled writeToFile:markerPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  [expectedMarker writeToFile:markerPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
   KartPadRealizePulsarConfigFiles(bundled, installedRoot);
   NSURL *parentURL = [NSURL fileURLWithPath:installedParent isDirectory:YES];
   [parentURL setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:nil];
@@ -852,13 +857,13 @@ void KartPadProvisionBundledContent() {
     KartPadProvisionBundledGameData(supportRoot);
     KartPadProvisionBundledRetroRewind(supportRoot);
     // Personal offline build: with the game data inside the app, open
-    // Mario Kart Wii on launch unless the player chose otherwise in
+    // Retro Rewind on launch unless the player chose otherwise in
     // On Launch (a registered default never overrides a saved choice).
     NSString *bundledData = [NSBundle.mainBundle.bundlePath
         stringByAppendingPathComponent:@"GameData/sys/fst.bin"];
     if ([NSFileManager.defaultManager fileExistsAtPath:bundledData]) {
       [NSUserDefaults.standardUserDefaults
-          registerDefaults:@{@"KartPadPreferredGame": @"base"}];
+          registerDefaults:@{@"KartPadPreferredGame": @"retro_rewind"}];
     }
   });
 }
